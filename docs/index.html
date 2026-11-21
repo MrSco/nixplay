@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NixPlay — Two-Way AirPlay 2 Audio, Video &amp; Real-Time Screen Mirroring for Linux</title>
+<meta name="description" content="Stream lossless multi-room AirPlay 2 audio, mirror your Linux desktop to Apple TV in real time (~40ms), cast 4K/YouTube videos, and receive AirPlay from iPhone, iPad, and Mac — in one pure-Rust binary.">
+<meta property="og:title" content="NixPlay — Two-Way AirPlay 2 for Linux">
+<meta property="og:description" content="Multi-room lossless ALAC audio, real-time FairPlay screen mirroring, per-app PipeWire routing, and built-in AirPlay receiving — for Linux Mint, Ubuntu, Fedora, Arch, Steam Deck, and Raspberry Pi.">
+<meta property="og:image" content="assets/screenshots/audio-dark.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<style>
+  :root {
+    --bg: #080b10;
+    --bg-elev: #0f141e;
+    --bg-gradient:
+      radial-gradient(circle at 12% -5%, rgba(56, 189, 248, 0.19), transparent 42%),
+      radial-gradient(circle at 88% 8%, rgba(129, 140, 248, 0.16), transparent 42%),
+      radial-gradient(circle at 50% 60%, rgba(52, 211, 153, 0.06), transparent 50%);
+    --surface: rgba(20, 26, 38, 0.78);
+    --surface-strong: rgba(24, 31, 46, 0.94);
+    --surface-hover: rgba(31, 40, 58, 0.92);
+    --border: rgba(255, 255, 255, 0.085);
+    --border-active: rgba(56, 189, 248, 0.48);
+    --text: #f3f6fc;
+    --text-muted: #94a3b8;
+    --text-soft: #cbd5e1;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --code-bg: rgba(8, 11, 18, 0.85);
+    --radius: 18px;
+    --radius-sm: 11px;
+    --shadow: 0 20px 55px rgba(0, 0, 0, 0.5);
+  }
+  [data-theme="light"] {
+    --bg: #eef2f8;
+    --bg-elev: #ffffff;
+    --bg-gradient:
+      radial-gradient(circle at 12% -5%, rgba(14, 165, 233, 0.15), transparent 44%),
+      radial-gradient(circle at 88% 8%, rgba(99, 102, 241, 0.13), transparent 44%);
+    --surface: rgba(255, 255, 255, 0.86);
+    --surface-strong: rgba(255, 255, 255, 0.97);
+    --surface-hover: rgba(255, 255, 255, 1);
+    --border: rgba(15, 23, 42, 0.1);
+    --border-active: rgba(2, 132, 199, 0.48);
+    --text: #0f172a;
+    --text-muted: #526075;
+    --text-soft: #334155;
+    --accent: #0284c7;
+    --accent-2: #6366f1;
+    --success: #059669;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --code-bg: #0f172a;
+    --shadow: 0 18px 44px rgba(15, 23, 42, 0.09);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    background-image: var(--bg-gradient);
+    background-attachment: fixed;
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; display: block; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 22px; }
+
+  /* Sticky Navbar */
+  .nav {
+    position: sticky; top: 0; z-index: 40;
+    backdrop-filter: blur(18px);
+    background: color-mix(in srgb, var(--bg) 78%, transparent);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: 1120px; margin: 0 auto; padding: 12px 22px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .nav-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
+  .nav-brand img { width: 34px; height: 34px; filter: drop-shadow(0 3px 8px rgba(56,189,248,0.28)); }
+  .nav-links { display: flex; align-items: center; gap: 22px; font-size: 13.5px; font-weight: 600; color: var(--text-muted); }
+  .nav-links a:hover { color: var(--text); }
+  .nav-actions { display: flex; align-items: center; gap: 8px; }
+
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); display: grid; place-items: center; cursor: pointer;
+    transition: all 0.16s ease;
+  }
+  .icon-btn:hover { border-color: var(--border-active); transform: translateY(-1px); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 18px; border-radius: 11px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 13.5px; font-weight: 600;
+    cursor: pointer; transition: all 0.16s ease;
+  }
+  .btn:hover { background: var(--surface-hover); border-color: var(--border-active); transform: translateY(-1px); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-color: transparent; color: #fff;
+    box-shadow: 0 8px 24px rgba(56, 189, 248, 0.28);
+  }
+  .btn.primary:hover { filter: brightness(1.07); }
+  .btn.sm { padding: 7px 13px; font-size: 12.5px; border-radius: 9px; }
+
+  /* Hero */
+  .hero { padding: 62px 0 40px; text-align: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 13px; border-radius: 999px;
+    background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.34);
+    color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+    margin-bottom: 20px;
+  }
+  .eyebrow .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+    box-shadow: 0 0 9px var(--success);
+  }
+  .hero h1 {
+    font-size: clamp(2.2rem, 5vw, 3.65rem); font-weight: 850; letter-spacing: -0.035em;
+    line-height: 1.08; max-width: 840px; margin: 0 auto 18px;
+  }
+  .grad-text {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2) 60%, var(--success));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero-sub {
+    font-size: clamp(1rem, 1.8vw, 1.16rem); color: var(--text-muted);
+    max-width: 720px; margin: 0 auto 28px;
+  }
+
+  /* One-line Install Box */
+  .install-pill {
+    max-width: 780px; margin: 0 auto 22px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 8px 8px 16px; border-radius: 14px;
+    background: var(--code-bg); border: 1px solid rgba(56, 189, 248, 0.3);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+    text-align: left;
+  }
+  .install-pill code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px; color: #e2e8f0; overflow-x: auto; white-space: nowrap;
+  }
+  .install-pill .prompt { color: #34d399; user-select: none; margin-right: 6px; }
+  .copy-btn {
+    flex-shrink: 0; padding: 8px 13px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(56, 189, 248, 0.16); color: #e0f2fe; font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .copy-btn:hover { background: rgba(56, 189, 248, 0.28); }
+  .copy-btn.copied { background: rgba(52, 211, 153, 0.25); color: #a7f3d0; border-color: rgba(52, 211, 153, 0.45); }
+
+  .hero-ctas { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .hero-note { font-size: 12.5px; color: var(--text-muted); margin-bottom: 36px; }
+
+  /* Framed App Showcase Window */
+  .window-frame {
+    max-width: 980px; margin: 0 auto;
+    border-radius: 20px; overflow: hidden;
+    background: var(--surface-strong);
+    border: 1px solid var(--border-active);
+    box-shadow: var(--shadow), 0 0 80px rgba(56, 189, 248, 0.12);
+  }
+  .window-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 11px 16px; border-bottom: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.22);
+  }
+  [data-theme="light"] .window-bar { background: rgba(15, 23, 42, 0.04); }
+  .win-dots { display: flex; gap: 7px; }
+  .win-dots span { width: 11px; height: 11px; border-radius: 50%; }
+  .win-dots .r { background: #f87171; }
+  .win-dots .y { background: #fbbf24; }
+  .win-dots .g { background: #34d399; }
+  .win-title { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .win-badge {
+    font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
+    background: rgba(52, 211, 153, 0.16); color: var(--success);
+  }
+  .window-media { position: relative; background: #0b0e14; }
+  .window-media img { width: 100%; height: auto; display: block; }
+
+  .gallery-tabs {
+    display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .g-tab {
+    padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-muted); font-size: 12.5px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .g-tab:hover { color: var(--text); border-color: var(--border-active); }
+  .g-tab.active {
+    background: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(129,140,248,0.22));
+    color: var(--text); border-color: var(--border-active);
+  }
+
+  /* Section Boilerplate */
+  section.block { padding: 72px 0 0; }
+  .section-head { text-align: center; max-width: 720px; margin: 0 auto 38px; }
+  .kicker {
+    font-size: 11.5px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 10px;
+  }
+  .section-head h2 {
+    font-size: clamp(1.65rem, 3.2vw, 2.35rem); font-weight: 800; letter-spacing: -0.028em;
+    line-height: 1.15; margin-bottom: 12px;
+  }
+  .section-head p { color: var(--text-muted); font-size: 1rem; }
+
+  /* Story / Why Created */
+  .story-grid {
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 22px; align-items: stretch;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; backdrop-filter: blur(18px); box-shadow: var(--shadow);
+  }
+  .story-card h3 { font-size: 18px; font-weight: 750; margin-bottom: 12px; }
+  .story-card p { color: var(--text-soft); font-size: 14.5px; margin-bottom: 12px; }
+  .story-card p:last-child { margin-bottom: 0; }
+  .pain-list { list-style: none; display: flex; flex-direction: column; gap: 11px; }
+  .pain-list li {
+    display: flex; gap: 11px; align-items: flex-start;
+    padding: 11px 13px; border-radius: 12px; background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border); font-size: 13.5px; color: var(--text-soft);
+  }
+  [data-theme="light"] .pain-list li { background: rgba(15, 23, 42, 0.03); }
+  .pain-tag {
+    flex-shrink: 0; font-size: 10.5px; font-weight: 800; padding: 3px 8px; border-radius: 99px;
+    background: rgba(52, 211, 153, 0.16); color: var(--success); margin-top: 1px;
+  }
+  .pain-tag.old { background: rgba(248, 113, 113, 0.14); color: var(--danger); }
+
+  /* Two-Way Showcase */
+  .twoway-card {
+    overflow: hidden; padding: 0;
+  }
+  .twoway-media {
+    background: #0b0e14; border-bottom: 1px solid var(--border);
+  }
+  .twoway-media img { width: 100%; height: auto; margin: 0 auto; }
+  .pillars {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+  }
+  .pillar { padding: 22px 24px; border-right: 1px solid var(--border); }
+  .pillar:last-child { border-right: none; }
+  .pillar-badge {
+    display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 99px; margin-bottom: 10px;
+  }
+  .pillar-badge.rx { background: rgba(52, 211, 153, 0.16); color: var(--success); }
+  .pillar-badge.audio { background: rgba(56, 189, 248, 0.16); color: var(--accent); }
+  .pillar-badge.video { background: rgba(129, 140, 248, 0.18); color: var(--accent-2); }
+  .pillar h3 { font-size: 16px; font-weight: 750; margin-bottom: 7px; }
+  .pillar p { font-size: 13.5px; color: var(--text-muted); }
+
+  /* Feature Bento Grid */
+  .bento {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+  }
+  .feat {
+    display: flex; flex-direction: column; gap: 10px; transition: border-color 0.16s, transform 0.16s;
+  }
+  .feat:hover { border-color: var(--border-active); transform: translateY(-2px); }
+  .feat-ico {
+    width: 42px; height: 42px; border-radius: 12px;
+    background: linear-gradient(135deg, rgba(56,189,248,0.18), rgba(129,140,248,0.18));
+    border: 1px solid var(--border-active); color: var(--accent);
+    display: grid; place-items: center;
+  }
+  .feat h3 { font-size: 15.5px; font-weight: 750; }
+  .feat p { font-size: 13.5px; color: var(--text-muted); }
+
+  /* Screenshots Split Row */
+  .shot-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px;
+  }
+  .shot-card { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .shot-card img { border-radius: 12px; border: 1px solid var(--border); }
+  .shot-meta { padding: 0 4px 4px; }
+  .shot-meta h3 { font-size: 15px; font-weight: 750; margin-bottom: 4px; }
+  .shot-meta p { font-size: 13px; color: var(--text-muted); }
+
+  /* Comparison Table */
+  .table-wrap { overflow-x: auto; padding: 0; }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.cmp th, table.cmp td {
+    padding: 13px 15px; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  table.cmp th {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.02);
+  }
+  table.cmp tr:last-child td { border-bottom: none; }
+  table.cmp th.hl, table.cmp td.hl {
+    background: rgba(56, 189, 248, 0.09); color: var(--text); font-weight: 700;
+  }
+  .yes { color: var(--success); font-weight: 800; }
+  .partial { color: var(--warning); font-weight: 700; }
+  .no { color: var(--text-muted); opacity: 0.55; }
+
+  /* Distro Badges */
+  .distro-row {
+    display: flex; justify-content: center; flex-wrap: wrap; gap: 10px;
+    margin-bottom: 26px;
+  }
+  .distro-pill {
+    padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-soft);
+  }
+
+  /* Install / Quick Start Tabs */
+  .qs-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .qs-panel { display: none; }
+  .qs-panel.active { display: block; }
+  pre.code-block {
+    background: var(--code-bg); color: #e2e8f0; border: 1px solid var(--border);
+    border-radius: 13px; padding: 16px 18px; overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; line-height: 1.65;
+  }
+  pre.code-block .c { color: #64748b; }
+  pre.code-block .k { color: #38bdf8; }
+
+  /* Footer */
+  footer {
+    margin-top: 84px; border-top: 1px solid var(--border);
+    padding: 36px 0 48px; color: var(--text-muted); font-size: 13px;
+  }
+  .foot-inner {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+  }
+  .foot-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); }
+  .foot-brand img { width: 26px; height: 26px; }
+  .foot-links { display: flex; gap: 18px; flex-wrap: wrap; }
+  .foot-links a:hover { color: var(--accent); }
+
+  @media (max-width: 900px) {
+    .story-grid, .pillars, .bento, .shot-grid { grid-template-columns: 1fr; }
+    .pillar { border-right: none; border-bottom: 1px solid var(--border); }
+    .pillar:last-child { border-bottom: none; }
+    .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a href="#" class="nav-brand">
+      <img src="assets/icon-128.png" alt="NixPlay logo">
+      <span>NixPlay</span>
+    </a>
+    <nav class="nav-links">
+      <a href="#why">Why NixPlay</a>
+      <a href="#twoway">Two-Way</a>
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#compare">Compare</a>
+      <a href="#install">Install</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="icon-btn" title="Toggle light/dark theme" onclick="toggleTheme()" aria-label="Toggle theme">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+      <a class="btn sm primary" href="https://github.com/MrSco/nixplay" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- HERO -->
+  <section class="hero">
+    <div class="eyebrow">
+      <span class="dot"></span>
+      Open Source · Pure Rust · Single Binary · GPL-3.0
+    </div>
+    <h1>Two-way AirPlay for Linux,<br><span class="grad-text">finally done right.</span></h1>
+    <p class="hero-sub">
+      Stream lossless multi-room audio to HomePods, mirror your desktop to Apple TV in real time (~40ms), cast YouTube &amp; 4K videos, <strong>and</strong> receive AirPlay straight from your iPhone, iPad, or Mac — all in one friendly native app.
+    </p>
+
+    <div class="install-pill">
+      <code><span class="prompt">$</span><span id="installCmd">curl -fsSL https://raw.githubusercontent.com/mrsco/nixplay/main/install.sh | bash</span></code>
+      <button class="copy-btn" onclick="copyText('installCmd', this)">Copy</button>
+    </div>
+
+    <div class="hero-ctas">
+      <a class="btn primary" href="#install">Get Started (No sudo required)</a>
+      <a class="btn" href="https://github.com/MrSco/nixplay" target="_blank" rel="noopener">Star on GitHub</a>
+    </div>
+    <div class="hero-note">Installs cleanly into <code>~/.local/bin/nixplay</code> · Safe for immutable SteamOS · Zero C-dev headers needed</div>
+
+    <div class="window-frame">
+      <div class="window-bar">
+        <div class="win-dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+        <div class="win-title" id="heroFrameTitle">NixPlay Control Center — Interactive Feature Walkthrough</div>
+        <span class="win-badge" id="heroFrameBadge">LIVE GIF</span>
+      </div>
+      <div class="window-media">
+        <img id="heroPreviewImg" src="assets/demos/nixplay-tour.gif" alt="NixPlay Control Center walkthrough showing multi-room AirPlay 2 audio, screen mirroring with VAAPI/HEVC, two-way AirPlay receiving, Network Doctor, and Light mode">
+      </div>
+    </div>
+
+    <div class="gallery-tabs" role="tablist" aria-label="Preview views">
+      <button class="g-tab active" onclick="setHeroView(this, 'assets/demos/nixplay-tour.gif', 'NixPlay Control Center — Interactive Feature Walkthrough', 'LIVE GIF')">Animated Tour</button>
+      <button class="g-tab" onclick="setHeroView(this, 'assets/screenshots/audio-dark.png', 'Audio & Multi-Room — Lossless ALAC + Per-App Routing', 'DARK')">Multi-Room Audio</button>
+      <button class="g-tab" onclick="setHeroView(this, 'assets/screenshots/video-mirror-dark.png', 'Video & Mirror — Real-Time FairPlay + VAAPI/HEVC Options', 'MIRROR')">Video &amp; Mirror</button>
+      <button class="g-tab" onclick="setHeroView(this, 'assets/screenshots/receive-dark.png', 'Receive — Built-in Pure Rust AirPlay 2 Audio & uxplay Mirror', 'TWO-WAY')">Two-Way Receive</button>
+      <button class="g-tab" onclick="setHeroView(this, 'assets/screenshots/doctor-dark.png', 'Network & System Doctor — Instant Read-Only Diagnostics', 'DOCTOR')">Network Doctor</button>
+      <button class="g-tab" onclick="setHeroView(this, 'assets/screenshots/audio-light.png', 'NixPlay Control Center — Light Theme', 'LIGHT')">Light Mode</button>
+    </div>
+  </section>
+
+  <!-- WHY NIXPLAY WAS CREATED -->
+  <section class="block" id="why">
+    <div class="section-head">
+      <div class="kicker">Why NixPlay Exists</div>
+      <h2>Linux never had a complete AirPlay app — until now.</h2>
+      <p>For years, using Apple HomePods, Apple TVs, and iPhones alongside a Linux desktop meant stitching together half-working daemons, config files, and command-line hacks.</p>
+    </div>
+
+    <div class="story-grid">
+      <div class="card story-card">
+        <h3>The fragmented state of AirPlay on Linux</h3>
+        <p>
+          If you wanted to play Linux audio on a HomePod, PulseAudio's legacy RAOP module only spoke AirPlay 1 (with 2-second lag and frequent dropouts on modern HomePods). If you wanted to mirror your Linux desktop to an Apple TV in real time, there simply wasn't a friendly open-source tool — only laggy HLS workarounds or paid macOS/Windows apps.
+        </p>
+        <p>
+          And if you wanted to beam music from your iPhone back to your Linux PC's speakers, you had to install, compile, and configure yet another background service.
+        </p>
+        <p>
+          <strong>NixPlay was built to end that fragmentation:</strong> one self-contained Rust binary with a polished Control Center, system tray, CLI, and headless web UI that speaks modern AirPlay 2 &amp; AirPlay 1 in <em>both</em> directions — with zero Apple proprietary key material.
+        </p>
+      </div>
+      <div class="card">
+        <ul class="pain-list">
+          <li>
+            <span class="pain-tag old">BEFORE</span>
+            <div><strong>Lag &amp; broken HomePods:</strong> Legacy RAOP modules broke on HomePod mini and Apple TV 4K with PIN pairing.</div>
+          </li>
+          <li>
+            <span class="pain-tag old">BEFORE</span>
+            <div><strong>No real desktop mirroring:</strong> Casting a Linux screen meant multi-second HLS lag and broken audio routing.</div>
+          </li>
+          <li>
+            <span class="pain-tag old">BEFORE</span>
+            <div><strong>One-way silos:</strong> Separate C/Python/Go daemons just to send audio, cast URLs, or receive from an iPhone.</div>
+          </li>
+          <li>
+            <span class="pain-tag">NIXPLAY</span>
+            <div><strong>One pure-Rust binary:</strong> Multi-room ALAC, ~40ms FairPlay mirroring, per-app PipeWire routing, and built-in receiving — out of the box.</div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- TWO-WAY ARCHITECTURE -->
+  <section class="block" id="twoway">
+    <div class="section-head">
+      <div class="kicker">Two-Way AirPlay</div>
+      <h2>Send to your whole house. Receive from every Apple device.</h2>
+      <p>NixPlay turns your Linux PC, Steam Deck, or Raspberry Pi into a complete AirPlay hub — equally great as a sender and a receiver.</p>
+    </div>
+
+    <div class="card twoway-card">
+      <div class="twoway-media">
+        <img src="assets/demos/nixplay-twoway.gif" alt="Animated diagram showing two-way AirPlay flow between iPhone/iPad/Mac, NixPlay on Linux, HomePod speakers, and Apple TV 4K">
+      </div>
+      <div class="pillars">
+        <div class="pillar">
+          <span class="pillar-badge rx">Receive → Linux</span>
+          <h3>Built-in Pure Rust Audio + Optional Mirror</h3>
+          <p>Receive AirPlay 2 &amp; RAOP audio from iPhone, iPad, or Mac with zero external packages — complete with artwork, track info, PIN protection, and DACP Play/Pause/Skip remote controls. Need full iPhone screen mirroring? Flip to <code>uxplay</code> mode in one click.</p>
+        </div>
+        <div class="pillar">
+          <span class="pillar-badge audio">Send → Speakers</span>
+          <h3>Synchronized Multi-Room Lossless ALAC</h3>
+          <p>Stream 44.1 kHz / 16-bit lossless audio to HomePods, Apple TVs, Macs, and Sonos speakers simultaneously with per-speaker volume, <code>-500ms..+500ms</code> sync tuning, and per-app PipeWire routing.</p>
+        </div>
+        <div class="pillar">
+          <span class="pillar-badge video">Send → Apple TV</span>
+          <h3>Real-Time ~40ms FairPlay Mirroring</h3>
+          <p>Push your live Linux screen with desktop (or desktop + mic) audio using real FairPlay mirroring, VAAPI/NVENC hardware encoding, optional 4K HEVC, multi-monitor selection, and automatic HLS fallback.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES BENTO -->
+  <section class="block" id="features">
+    <div class="section-head">
+      <div class="kicker">Under the Hood</div>
+      <h2>Engineered for real Linux desktops, handhelds, and servers.</h2>
+      <p>Every detail — from PipeWire virtual sinks to Tailscale VPN bypasses — was built around how people actually run Linux.</p>
+    </div>
+
+    <div class="bento">
+      <article class="card feat">
+        <div class="feat-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </div>
+        <h3>Per-App PipeWire Routing</h3>
+        <p>Send only Spotify to your HomePods while keeping Discord or game audio on your headphones. Auto-switches on connect and cleanly restores your speakers on disconnect.</p>
+      </article>
+
+      <article class="card feat">
+        <div class="feat-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </div>
+        <h3>Hardware Mirroring (VAAPI / NVENC / HEVC)</h3>
+        <p>Pick any monitor on multi-display setups, run 60 fps with low GPU/CPU overhead via VAAPI or NVENC, enable HEVC (H.265) for up to 4K, and auto-tune wired vs. Wi-Fi latency.</p>
+      </article>
+
+      <article class="card feat">
+        <div class="feat-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><polygon points="12 15 17 21 7 21 12 15"/></svg>
+        </div>
+        <h3>Zero-Dep Built-in Audio Receiver</h3>
+        <p>Server-side HAP pairing (transient or 4-digit PIN), pure-Rust ALAC decoder, live DMAP metadata &amp; cover art, output speaker selector, and DACP remote buttons for your iPhone.</p>
+      </article>
+
+      <article class="card feat">
+        <div class="feat-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </div>
+        <h3>YouTube, Twitch &amp; Local 4K Video Cast</h3>
+        <p>Drag-and-drop MP4/MOV/M4V files served over a built-in LAN HTTP Range server with live scrubbing, or paste any YouTube/Vimeo/Twitch link (auto-resolved via <code>yt-dlp</code> with <code>?t=</code> start times).</p>
+      </article>
+
+      <article class="card feat">
+        <div class="feat-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        </div>
+        <h3>Tailscale Bypass &amp; Network Doctor</h3>
+        <p>Automatically bypasses VPN/Tailscale NAT onto direct LAN links for rock-solid UDP sync, auto-recovers after sleep/Wi-Fi roaming, and includes a read-only Network Doctor to spot firewall or mDNS blockers.</p>
+      </article>
+
+      <article class="card feat">
+        <div class="feat-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
+        </div>
+        <h3>Steam Deck &amp; Raspberry Pi Ready</h3>
+        <p>User-space install touches zero root files on SteamOS. Run headless with <code>--bind 0.0.0.0 --no-tray</code> and control your whole home's speakers from any phone browser.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- SCREENSHOTS -->
+  <section class="block" id="screenshots">
+    <div class="section-head">
+      <div class="kicker">Visual Tour</div>
+      <h2>Polished, fast, and native to your desktop.</h2>
+      <p>Runs as a crisp GTK window, a system tray icon, or a responsive browser app — with full Dark &amp; Light themes.</p>
+    </div>
+
+    <div class="shot-grid">
+      <div class="card shot-card">
+        <img src="assets/screenshots/audio-dark.png" alt="NixPlay Audio & Multi-Room dark mode">
+        <div class="shot-meta">
+          <h3>Multi-Room Audio &amp; Per-App Routing</h3>
+          <p>Toggle multiple AirPlay 2 &amp; RAOP speakers in sync, fine-tune per-speaker delay offsets, and route individual Linux apps.</p>
+        </div>
+      </div>
+
+      <div class="card shot-card">
+        <img src="assets/screenshots/video-mirror-dark.png" alt="NixPlay Video & Mirror tab with Advanced Mirror Options open">
+        <div class="shot-meta">
+          <h3>Real-Time Screen Mirroring &amp; Advanced Controls</h3>
+          <p>One-click FairPlay mirroring to Apple TV with an expandable Advanced drawer for monitor selection, 60 fps, VAAPI/NVENC, HEVC, and latency profiles.</p>
+        </div>
+      </div>
+
+      <div class="card shot-card">
+        <img src="assets/screenshots/receive-dark.png" alt="NixPlay Two-Way Receive tab connected to an iPhone">
+        <div class="shot-meta">
+          <h3>Two-Way AirPlay Receive + Phone Controls</h3>
+          <p>Receive audio directly via the built-in Rust engine (or switch to <code>uxplay</code> for mirrored video) with live track info, PIN mode, and DACP Play/Pause/Skip.</p>
+        </div>
+      </div>
+
+      <div class="card shot-card">
+        <img src="assets/screenshots/doctor-dark.png" alt="NixPlay Network & System Doctor modal">
+        <div class="shot-meta">
+          <h3>Built-in Network &amp; System Doctor</h3>
+          <p>Instant read-only check of Avahi, UFW/firewalld, Tailscale routes, PipeWire, hardware encoders, and monitors — plain English, zero guesswork.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPARISON TABLE -->
+  <section class="block" id="compare">
+    <div class="section-head">
+      <div class="kicker">How NixPlay Stands Out</div>
+      <h2>Why nothing else on Linux does AirPlay like this.</h2>
+      <p>Other Linux tools each solve one slice of AirPlay. NixPlay brings the entire two-way experience together in a single binary.</p>
+    </div>
+
+    <div class="card table-wrap">
+      <table class="cmp">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th class="hl">NixPlay</th>
+            <th>PipeWire / PA RAOP</th>
+            <th>Shairport Sync</th>
+            <th>UxPlay</th>
+            <th>OwnTone</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>AirPlay 2 Multi-Room Audio (Send)</td>
+            <td class="hl"><span class="yes">✓ Native ALAC + Sync</span></td>
+            <td><span class="partial">AirPlay 1 only</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="yes">✓ Library only</span></td>
+          </tr>
+          <tr>
+            <td>Per-App Linux Audio Routing</td>
+            <td class="hl"><span class="yes">✓ Built-in UI</span></td>
+            <td><span class="partial">Manual pavucontrol</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td>Real-Time FairPlay Screen Mirroring (Send)</td>
+            <td class="hl"><span class="yes">✓ ~40ms + VAAPI/HEVC</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td>Local Video &amp; YouTube / HLS Casting</td>
+            <td class="hl"><span class="yes">✓ Built-in + yt-dlp</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td>Receive AirPlay Audio from iPhone / Mac</td>
+            <td class="hl"><span class="yes">✓ Built-in Pure Rust</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="yes">✓ Receiver only</span></td>
+            <td><span class="yes">✓ Receiver only</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td>Receive Screen Mirroring (Video)</td>
+            <td class="hl"><span class="yes">✓ Optional uxplay mode</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="yes">✓ Receiver only</span></td>
+            <td><span class="no">—</span></td>
+          </tr>
+          <tr>
+            <td>Control Center UI + Tray + Headless Web + CLI</td>
+            <td class="hl"><span class="yes">✓ All four</span></td>
+            <td><span class="no">—</span></td>
+            <td><span class="no">CLI / daemon</span></td>
+            <td><span class="no">CLI only</span></td>
+            <td><span class="partial">Web music server</span></td>
+          </tr>
+          <tr>
+            <td>Single Binary, SteamOS-Safe Install</td>
+            <td class="hl"><span class="yes">✓ Zero C-dev deps</span></td>
+            <td><span class="partial">System package</span></td>
+            <td><span class="no">C build / root</span></td>
+            <td><span class="no">C + GStreamer</span></td>
+            <td><span class="no">Server daemon</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- INSTALL & QUICK START -->
+  <section class="block" id="install">
+    <div class="section-head">
+      <div class="kicker">Install in 60 Seconds</div>
+      <h2>Works on every major Linux distro &amp; device.</h2>
+      <p>Compiles a single native Rust binary in user space (<code>~/.local/bin/nixplay</code>) — no root writes, no C-dev packages required.</p>
+    </div>
+
+    <div class="distro-row">
+      <span class="distro-pill">Linux Mint</span>
+      <span class="distro-pill">Ubuntu / Debian</span>
+      <span class="distro-pill">Fedora</span>
+      <span class="distro-pill">Arch / EndeavourOS</span>
+      <span class="distro-pill">Steam Deck (SteamOS)</span>
+      <span class="distro-pill">Raspberry Pi (ARM64)</span>
+    </div>
+
+    <div class="card">
+      <div class="qs-tabs">
+        <button class="g-tab active" onclick="switchQs(this, 'qs-desktop')">Desktop Linux</button>
+        <button class="g-tab" onclick="switchQs(this, 'qs-deck')">Steam Deck</button>
+        <button class="g-tab" onclick="switchQs(this, 'qs-pi')">Raspberry Pi / Headless</button>
+        <button class="g-tab" onclick="switchQs(this, 'qs-cli')">CLI Power Commands</button>
+      </div>
+
+      <div class="qs-panel active" id="qs-desktop">
+<pre class="code-block"><span class="c"># 1. One-line install (no sudo required for the binary)</span>
+<span class="k">curl</span> -fsSL https://raw.githubusercontent.com/mrsco/nixplay/main/install.sh | bash
+
+<span class="c"># 2. Launch Control Center + System Tray (or pick "NixPlay AirPlay" from your app menu)</span>
+<span class="k">nixplay</span> serve --open
+
+<span class="c"># 3. Optional: install uxplay if you also want to receive iPhone video screen mirroring</span>
+<span class="k">sudo apt install</span> uxplay</pre>
+      </div>
+
+      <div class="qs-panel" id="qs-deck">
+<pre class="code-block"><span class="c"># Installs strictly into ~/.local/bin — SteamOS updates never wipe it</span>
+<span class="k">curl</span> -fsSL https://raw.githubusercontent.com/mrsco/nixplay/main/install.sh | bash
+
+<span class="c"># Desktop Mode: launch from the app menu or run:</span>
+<span class="k">nixplay</span> serve --open
+
+<span class="c"># Control speakers from your phone while docked in Game Mode:</span>
+<span class="k">nixplay</span> serve --bind 0.0.0.0</pre>
+      </div>
+
+      <div class="qs-panel" id="qs-pi">
+<pre class="code-block"><span class="c"># Run headless and control multi-room speakers + AirPlay receiving from any phone browser</span>
+<span class="k">nixplay</span> serve --bind 0.0.0.0 --no-tray
+
+<span class="c"># Auto-start on boot with systemd user service:</span>
+mkdir -p ~/.config/systemd/user
+cp desktop/nixplay.service ~/.config/systemd/user/
+systemctl --user enable --now nixplay.service</pre>
+      </div>
+
+      <div class="qs-panel" id="qs-cli">
+<pre class="code-block"><span class="k">nixplay</span> scan                                    <span class="c"># Discover AirPlay 2 &amp; RAOP devices</span>
+<span class="k">nixplay</span> pair "Living Room"                      <span class="c"># One-time 4-digit Apple TV PIN pairing</span>
+<span class="k">nixplay</span> stream "Kitchen" "Living Room"          <span class="c"># Synchronized multi-room audio</span>
+<span class="k">nixplay</span> cast "Living Room" ~/Videos/movie.mp4   <span class="c"># Cast local video or YouTube URL</span>
+<span class="k">nixplay</span> cast-screen "Living Room" --fps 60 --encoder vaapi --codec hevc --latency low
+<span class="k">nixplay</span> receive --name "Linux Desk" --pin       <span class="c"># Receive AirPlay audio on this PC</span>
+<span class="k">nixplay</span> doctor                                  <span class="c"># Run read-only network &amp; system diagnostics</span></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <div class="foot-brand">
+      <img src="assets/icon-128.png" alt="">
+      <span>NixPlay · GPL-3.0-or-later</span>
+    </div>
+    <div style="font-size:12px;">
+      Zero Apple source code or key material. Mirroring protocol ported from <a href="https://github.com/omarroth/doubletake" target="_blank" rel="noopener" style="color:var(--accent);">doubletake</a> (LGPL-3.0).
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/MrSco/nixplay" target="_blank" rel="noopener">Repository</a>
+      <a href="https://github.com/MrSco/nixplay/issues" target="_blank" rel="noopener">Issues</a>
+      <a href="https://github.com/MrSco/nixplay/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+const saved = localStorage.getItem('nixplay-site-theme');
+if (saved) document.documentElement.setAttribute('data-theme', saved);
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('nixplay-site-theme', next);
+}
+
+function setHeroView(btn, src, title, badge) {
+  document.querySelectorAll('.gallery-tabs .g-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('heroPreviewImg').src = src;
+  document.getElementById('heroFrameTitle').textContent = title;
+  document.getElementById('heroFrameBadge').textContent = badge;
+}
+
+function switchQs(btn, panelId) {
+  document.querySelectorAll('.qs-tabs .g-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.qs-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(panelId).classList.add('active');
+}
+
+function copyText(id, btn) {
+  const txt = document.getElementById(id).textContent.trim();
+  navigator.clipboard.writeText(txt).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1800);
+  });
+}
+</script>
+</body>
+</html>
