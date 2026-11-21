@@ -508,6 +508,17 @@ impl HapControlCipher {
         )
     }
 
+    /// Server-side (receiver) control channel cipher: reads with the client's write key
+    /// and writes with the client's read key.
+    pub fn from_shared_secret_server(shared_secret: &[u8]) -> Result<Self> {
+        Self::from_salt_and_info(
+            shared_secret,
+            b"Control-Salt",
+            b"Control-Read-Encryption-Key",
+            b"Control-Write-Encryption-Key",
+        )
+    }
+
     pub fn from_events_secret(shared_secret: &[u8]) -> Result<Self> {
         // Events channel is reversed (device writes to us, we read from device)
         Self::from_salt_and_info(
@@ -603,6 +614,348 @@ impl HapControlCipher {
     }
 }
 
+/// Server-side (receiver) HAP Pair-Setup state machine.
+/// Supports both transient pairing (M1..M4, PIN "3939") and PIN pairing (M1..M6 with Ed25519).
+pub struct HapServerPairSetup {
+    pin: String,
+    server_id: String,
+    server_sk: SigningKey,
+    n: BigUint,
+    g: BigUint,
+    salt: [u8; 16],
+    v: BigUint,
+    b: BigUint,
+    pub_b: BigUint,
+    session_key: Option<[u8; 64]>,
+    transient: bool,
+}
+
+impl HapServerPairSetup {
+    pub fn new(pin: &str, server_id: String, server_sk: SigningKey) -> Self {
+        let n = BigUint::parse_bytes(SRP_3072_N_HEX.as_bytes(), 16).expect("valid RFC 5054 N");
+        let g = BigUint::from(5u32);
+
+        let mut salt = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut salt);
+        // Ensure leading byte is non-zero so BigUint::from_bytes_be preserves all 16 bytes
+        if salt[0] == 0 {
+            salt[0] = 0x5A;
+        }
+
+        let up_hash = sha512(&[SRP_USERNAME, b":", pin.as_bytes()]);
+        let x_hash = sha512(&[&salt, &up_hash]);
+        let x = BigUint::from_bytes_be(&x_hash);
+        let v = g.modpow(&x, &n);
+
+        let mut b_bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut b_bytes);
+        let b = BigUint::from_bytes_be(&b_bytes);
+
+        let n_bytes = n.to_bytes_be();
+        let g_bytes = g.to_bytes_be();
+        let k_hash = sha512(&[&pad_to(&n_bytes, N_LEN), &pad_to(&g_bytes, N_LEN)]);
+        let k = BigUint::from_bytes_be(&k_hash);
+
+        let kv = (&k * &v) % &n;
+        let gb = g.modpow(&b, &n);
+        let pub_b = (kv + gb) % &n;
+
+        Self {
+            pin: pin.to_string(),
+            server_id,
+            server_sk,
+            n,
+            g,
+            salt,
+            v,
+            b,
+            pub_b,
+            session_key: None,
+            transient: false,
+        }
+    }
+
+    pub fn is_transient(&self) -> bool {
+        self.transient
+    }
+
+    pub fn session_key(&self) -> Option<[u8; 64]> {
+        self.session_key
+    }
+
+    /// Process M1 from controller and produce M2 (salt + server SRP public key B).
+    pub fn handle_m1(&mut self, m1_tlv: &[u8]) -> Result<Vec<u8>> {
+        let items = tlv8_decode(m1_tlv)?;
+        if let Some(flags) = tlv8_get(&items, TLV_FLAGS) {
+            if !flags.is_empty() && (flags[0] & PAIRING_FLAG_TRANSIENT) != 0 {
+                self.transient = true;
+            }
+        }
+        let b_bytes = self.pub_b.to_bytes_be();
+        Ok(tlv8_encode(&[
+            (TLV_STATE, &[0x02]),
+            (TLV_PUBLIC_KEY, &b_bytes),
+            (TLV_SALT, &self.salt),
+        ]))
+    }
+
+    /// Process M3 from controller (client A + proof M1), verify proof, and produce M4.
+    pub fn handle_m3(&mut self, m3_tlv: &[u8]) -> Result<(Vec<u8>, [u8; 64])> {
+        let items = tlv8_decode(m3_tlv)?;
+        let a_raw = tlv8_get(&items, TLV_PUBLIC_KEY).context("M3 missing client public key A")?;
+        let client_m1 = tlv8_get(&items, TLV_PROOF).context("M3 missing client proof")?;
+
+        let a_big = BigUint::from_bytes_be(a_raw);
+        if &a_big % &self.n == BigUint::from(0u32) {
+            bail!("Invalid SRP client public key A (0 mod N)");
+        }
+
+        let n_bytes = self.n.to_bytes_be();
+        let g_bytes = self.g.to_bytes_be();
+        let a_bytes = a_big.to_bytes_be();
+        let b_bytes = self.pub_b.to_bytes_be();
+
+        let u_hash = sha512(&[&pad_to(&a_bytes, N_LEN), &pad_to(&b_bytes, N_LEN)]);
+        let u = BigUint::from_bytes_be(&u_hash);
+        if u == BigUint::from(0u32) {
+            bail!("Invalid SRP scrambling parameter u == 0");
+        }
+
+        let vu = self.v.modpow(&u, &self.n);
+        let avu = (&a_big * &vu) % &self.n;
+        let s_big = avu.modpow(&self.b, &self.n);
+        let s_bytes = s_big.to_bytes_be();
+        let session_key = sha512(&[&s_bytes]);
+
+        let h_n = sha512(&[&n_bytes]);
+        let h_g = sha512(&[&g_bytes]);
+        let mut h_xor = [0u8; 64];
+        for i in 0..64 {
+            h_xor[i] = h_n[i] ^ h_g[i];
+        }
+        let h_i = sha512(&[SRP_USERNAME]);
+        let salt_min = BigUint::from_bytes_be(&self.salt).to_bytes_be();
+        let expected_m1 = sha512(&[&h_xor, &h_i, &salt_min, &a_bytes, &b_bytes, &session_key]);
+        if client_m1 != expected_m1 {
+            let err_tlv = tlv8_encode(&[(TLV_STATE, &[0x04]), (TLV_ERROR, &[0x02])]);
+            return Ok((err_tlv, [0u8; 64]));
+        }
+
+        let server_m2 = sha512(&[&a_bytes, &expected_m1, &session_key]);
+        self.session_key = Some(session_key);
+        let _ = &self.pin;
+
+        let m4 = tlv8_encode(&[(TLV_STATE, &[0x04]), (TLV_PROOF, &server_m2)]);
+        Ok((m4, session_key))
+    }
+
+    /// Process M5 from controller (encrypted Ed25519 identity), returning `(M6, client_id, client_pk_hex)`.
+    pub fn handle_m5(&self, m5_tlv: &[u8]) -> Result<(Vec<u8>, String, String)> {
+        let session_key = self
+            .session_key
+            .context("handle_m5 called before M3 verified")?;
+        let items = tlv8_decode(m5_tlv)?;
+        let enc_data = tlv8_get(&items, TLV_ENCRYPTED_DATA).context("M5 missing encrypted data")?;
+
+        let enc_key = hkdf_sha512_32(
+            &session_key,
+            b"Pair-Setup-Encrypt-Salt",
+            b"Pair-Setup-Encrypt-Info",
+        )?;
+        let cipher = ChaCha20Poly1305::new((&enc_key).into());
+        let dec = cipher
+            .decrypt(Nonce::from_slice(&hap_nonce_str(b"PS-Msg05")), enc_data)
+            .map_err(|_| anyhow::anyhow!("M5 decryption failed"))?;
+
+        let sub = tlv8_decode(&dec)?;
+        let client_id = String::from_utf8_lossy(
+            tlv8_get(&sub, TLV_IDENTIFIER).context("M5 missing client identifier")?,
+        )
+        .to_string();
+        let client_pk_bytes: [u8; 32] = tlv8_get(&sub, TLV_PUBLIC_KEY)
+            .context("M5 missing client public key")?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("M5 client pubkey must be 32 bytes"))?;
+        let client_sig_bytes: [u8; 64] = tlv8_get(&sub, TLV_SIGNATURE)
+            .context("M5 missing client signature")?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("M5 client signature must be 64 bytes"))?;
+
+        let device_x = hkdf_sha512_32(
+            &session_key,
+            b"Pair-Setup-Controller-Sign-Salt",
+            b"Pair-Setup-Controller-Sign-Info",
+        )?;
+        let mut device_info = Vec::with_capacity(32 + client_id.len() + 32);
+        device_info.extend_from_slice(&device_x);
+        device_info.extend_from_slice(client_id.as_bytes());
+        device_info.extend_from_slice(&client_pk_bytes);
+
+        let vk = VerifyingKey::from_bytes(&client_pk_bytes)
+            .map_err(|e| anyhow::anyhow!("M5 invalid Ed25519 client pubkey: {e}"))?;
+        let sig = Signature::from_bytes(&client_sig_bytes);
+        vk.verify(&device_info, &sig)
+            .map_err(|_| anyhow::anyhow!("M5 client signature verification failed"))?;
+
+        // Build M6 with server Ed25519 identity
+        let acc_x = hkdf_sha512_32(
+            &session_key,
+            b"Pair-Setup-Accessory-Sign-Salt",
+            b"Pair-Setup-Accessory-Sign-Info",
+        )?;
+        let server_pk = self.server_sk.verifying_key().to_bytes();
+        let mut acc_info = Vec::with_capacity(32 + self.server_id.len() + 32);
+        acc_info.extend_from_slice(&acc_x);
+        acc_info.extend_from_slice(self.server_id.as_bytes());
+        acc_info.extend_from_slice(&server_pk);
+        let acc_sig = self.server_sk.sign(&acc_info).to_bytes();
+
+        let m6_sub = tlv8_encode(&[
+            (TLV_IDENTIFIER, self.server_id.as_bytes()),
+            (TLV_PUBLIC_KEY, &server_pk),
+            (TLV_SIGNATURE, &acc_sig),
+        ]);
+        let m6_enc = cipher
+            .encrypt(Nonce::from_slice(&hap_nonce_str(b"PS-Msg06")), m6_sub.as_slice())
+            .map_err(|_| anyhow::anyhow!("M6 encryption failed"))?;
+        let m6 = tlv8_encode(&[(TLV_STATE, &[0x06]), (TLV_ENCRYPTED_DATA, &m6_enc)]);
+
+        Ok((m6, client_id, hex::encode(client_pk_bytes)))
+    }
+}
+
+/// Server-side (receiver) HAP Pair-Verify (M1..M4) using persistent Ed25519 server identity.
+pub struct HapServerPairVerify {
+    server_id: String,
+    server_sk: SigningKey,
+    eph_secret: X25519Secret,
+    eph_public: X25519Public,
+    client_eph_public: Option<[u8; 32]>,
+    shared_secret: Option<[u8; 32]>,
+    session_key: Option<[u8; 32]>,
+}
+
+impl HapServerPairVerify {
+    pub fn new(server_id: String, server_sk: SigningKey) -> Self {
+        let mut eph_bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut eph_bytes);
+        let eph_secret = X25519Secret::from(eph_bytes);
+        let eph_public = X25519Public::from(&eph_secret);
+        Self {
+            server_id,
+            server_sk,
+            eph_secret,
+            eph_public,
+            client_eph_public: None,
+            shared_secret: None,
+            session_key: None,
+        }
+    }
+
+    pub fn handle_m1(&mut self, m1_tlv: &[u8]) -> Result<Vec<u8>> {
+        let items = tlv8_decode(m1_tlv)?;
+        let client_pub_arr: [u8; 32] = tlv8_get(&items, TLV_PUBLIC_KEY)
+            .context("pair-verify M1 missing client public key")?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("pair-verify M1 client pubkey must be 32 bytes"))?;
+        let client_pub = X25519Public::from(client_pub_arr);
+        let shared = self.eph_secret.diffie_hellman(&client_pub).to_bytes();
+
+        let session_key = hkdf_sha512_32(
+            &shared,
+            b"Pair-Verify-Encrypt-Salt",
+            b"Pair-Verify-Encrypt-Info",
+        )?;
+
+        let mut acc_info = Vec::with_capacity(32 + self.server_id.len() + 32);
+        acc_info.extend_from_slice(self.eph_public.as_bytes());
+        acc_info.extend_from_slice(self.server_id.as_bytes());
+        acc_info.extend_from_slice(&client_pub_arr);
+        let sig = self.server_sk.sign(&acc_info).to_bytes();
+
+        let sub = tlv8_encode(&[
+            (TLV_IDENTIFIER, self.server_id.as_bytes()),
+            (TLV_SIGNATURE, &sig),
+        ]);
+        let cipher = ChaCha20Poly1305::new((&session_key).into());
+        let enc = cipher
+            .encrypt(Nonce::from_slice(&hap_nonce_str(b"PV-Msg02")), sub.as_slice())
+            .map_err(|_| anyhow::anyhow!("pair-verify M2 encryption failed"))?;
+
+        self.client_eph_public = Some(client_pub_arr);
+        self.shared_secret = Some(shared);
+        self.session_key = Some(session_key);
+
+        Ok(tlv8_encode(&[
+            (TLV_STATE, &[0x02]),
+            (TLV_PUBLIC_KEY, self.eph_public.as_bytes()),
+            (TLV_ENCRYPTED_DATA, &enc),
+        ]))
+    }
+
+    /// Process M3 from controller. If `lookup_client_pk` returns `Some(pk_hex)`, verifies the
+    /// client's Ed25519 signature; if `require_known` is false, allows any valid controller.
+    pub fn handle_m3<F>(
+        &self,
+        m3_tlv: &[u8],
+        require_known: bool,
+        lookup_client_pk: F,
+    ) -> Result<(Vec<u8>, Option<[u8; 32]>, Option<String>)>
+    where
+        F: FnOnce(&str) -> Option<String>,
+    {
+        let items = tlv8_decode(m3_tlv)?;
+        let enc_data =
+            tlv8_get(&items, TLV_ENCRYPTED_DATA).context("pair-verify M3 missing encrypted data")?;
+        let session_key = self
+            .session_key
+            .context("pair-verify M3 before M1")?;
+        let client_eph = self
+            .client_eph_public
+            .context("pair-verify M3 before M1")?;
+        let shared = self
+            .shared_secret
+            .context("pair-verify M3 before M1")?;
+
+        let cipher = ChaCha20Poly1305::new((&session_key).into());
+        let dec = cipher
+            .decrypt(Nonce::from_slice(&hap_nonce_str(b"PV-Msg03")), enc_data)
+            .map_err(|_| anyhow::anyhow!("pair-verify M3 decryption failed"))?;
+        let sub = tlv8_decode(&dec)?;
+        let client_id = String::from_utf8_lossy(
+            tlv8_get(&sub, TLV_IDENTIFIER).context("pair-verify M3 missing identifier")?,
+        )
+        .to_string();
+        let sig_bytes: [u8; 64] = tlv8_get(&sub, TLV_SIGNATURE)
+            .context("pair-verify M3 missing signature")?
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("pair-verify M3 signature must be 64 bytes"))?;
+
+        if let Some(pk_hex) = lookup_client_pk(&client_id) {
+            let pk_bytes: [u8; 32] = hex::decode(&pk_hex)
+                .context("stored client pk hex invalid")?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("stored client pk must be 32 bytes"))?;
+            let vk = VerifyingKey::from_bytes(&pk_bytes)
+                .map_err(|e| anyhow::anyhow!("invalid stored client Ed25519 key: {e}"))?;
+            let mut dev_info = Vec::with_capacity(32 + client_id.len() + 32);
+            dev_info.extend_from_slice(&client_eph);
+            dev_info.extend_from_slice(client_id.as_bytes());
+            dev_info.extend_from_slice(self.eph_public.as_bytes());
+            if vk.verify(&dev_info, &Signature::from_bytes(&sig_bytes)).is_err() {
+                let err_tlv = tlv8_encode(&[(TLV_STATE, &[0x04]), (TLV_ERROR, &[0x02])]);
+                return Ok((err_tlv, None, None));
+            }
+        } else if require_known {
+            let err_tlv = tlv8_encode(&[(TLV_STATE, &[0x04]), (TLV_ERROR, &[0x02])]);
+            return Ok((err_tlv, None, None));
+        }
+
+        let m4 = tlv8_encode(&[(TLV_STATE, &[0x04])]);
+        Ok((m4, Some(shared), Some(client_id)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,15 +974,7 @@ mod tests {
     fn hap_control_cipher_encrypt_decrypt_roundtrip() {
         let secret = [0x42u8; 64];
         let mut client = HapControlCipher::from_shared_secret(&secret).unwrap();
-        let wk = hkdf_sha512_32(&secret, b"Control-Salt", b"Control-Write-Encryption-Key").unwrap();
-        let rk = hkdf_sha512_32(&secret, b"Control-Salt", b"Control-Read-Encryption-Key").unwrap();
-        let mut server = HapControlCipher {
-            write_cipher: ChaCha20Poly1305::new((&rk).into()),
-            read_cipher: ChaCha20Poly1305::new((&wk).into()),
-            write_counter: 0,
-            read_counter: 0,
-            read_buf: Vec::new(),
-        };
+        let mut server = HapControlCipher::from_shared_secret_server(&secret).unwrap();
 
         let msg = vec![b'X'; 2500];
         let enc = client.encrypt(&msg).unwrap();
@@ -638,5 +983,56 @@ mod tests {
             out.extend_from_slice(&server.feed_and_decrypt(c).unwrap());
         }
         assert_eq!(out, msg);
+    }
+
+    #[test]
+    fn hap_transient_pair_setup_client_server_roundtrip() {
+        let mut sk_seed = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut sk_seed);
+        let server_sk = SigningKey::from_bytes(&sk_seed);
+
+        let mut client = HapTransientPairer::new(None);
+        let mut server = HapServerPairSetup::new("3939", "AA:BB:CC:DD:EE:FF".into(), server_sk);
+
+        let m1 = client.build_m1();
+        let m2 = server.handle_m1(&m1).unwrap();
+        assert!(server.is_transient());
+        let m3 = client.process_m2_and_build_m3(&m2).unwrap();
+        let (m4, server_secret) = server.handle_m3(&m3).unwrap();
+        let client_secret = client.process_m4(&m4).unwrap();
+        assert_eq!(client_secret, server_secret);
+    }
+
+    #[test]
+    fn hap_pin_pair_setup_and_pair_verify_roundtrip() {
+        let mut sk_seed = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut sk_seed);
+        let server_sk = SigningKey::from_bytes(&sk_seed);
+
+        let mut client = HapTransientPairer::new(Some("4821"));
+        let mut server = HapServerPairSetup::new("4821", "11:22:33:44:55:66".into(), server_sk.clone());
+
+        let m1 = client.build_m1();
+        let m2 = server.handle_m1(&m1).unwrap();
+        let m3 = client.process_m2_and_build_m3(&m2).unwrap();
+        let (m4, _) = server.handle_m3(&m3).unwrap();
+        client.process_m4(&m4).unwrap();
+        let m5 = client.build_m5().unwrap();
+        let (m6, cid, cpk_hex) = server.handle_m5(&m5).unwrap();
+        let creds = client.process_m6(&m6).unwrap();
+        assert_eq!(creds.client_id, cid);
+
+        // Now run Pair-Verify with the stored credentials
+        let mut pv_client = HapPairVerifier::from_credentials(&creds).unwrap();
+        let mut pv_server = HapServerPairVerify::new("11:22:33:44:55:66".into(), server_sk);
+        let vm1 = pv_client.build_m1();
+        let vm2 = pv_server.handle_m1(&vm1).unwrap();
+        let vm3 = pv_client.process_m2_and_build_m3(&vm2).unwrap();
+        let (vm4, server_shared, verified_cid) = pv_server
+            .handle_m3(&vm3, true, |id| (id == cid).then(|| cpk_hex.clone()))
+            .unwrap();
+        let client_shared = pv_client.process_m4(&vm4).unwrap();
+        assert_eq!(verified_cid.as_deref(), Some(cid.as_str()));
+        assert_eq!(Some(client_shared), server_shared);
     }
 }

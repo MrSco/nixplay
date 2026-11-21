@@ -49,6 +49,126 @@ impl Default for DevicePrefs {
     }
 }
 
+/// Which AirPlay receiver engine to run when Receiving is enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiverMode {
+    /// Built-in pure-Rust AirPlay 2 + RAOP audio receiver (zero external dependencies).
+    #[default]
+    BuiltinAudio,
+    /// Supervised `uxplay` receiver for full iPhone/iPad/Mac screen mirroring + audio.
+    Uxplay,
+}
+
+/// Persistent settings for two-way AirPlay receiving on this Linux machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReceiverConfig {
+    /// Start receiving automatically on launch.
+    pub enabled: bool,
+    /// Built-in pure-Rust audio receiver vs. `uxplay` screen mirroring + audio.
+    pub mode: ReceiverMode,
+    /// Name advertised to iPhones, iPads, and Macs on the local network.
+    pub name: String,
+    /// Require a 4-digit on-screen PIN for unpaired Apple devices.
+    pub pin_mode: bool,
+    /// Remember devices that completed PIN pairing so they aren't asked again.
+    pub remember_devices: bool,
+    /// Enable H.265 / HEVC when receiving screen mirroring via `uxplay`.
+    pub h265: bool,
+    /// Preferred PipeWire/PulseAudio output sink name (None = system default).
+    pub output_sink: Option<String>,
+    /// Persistent 32-byte Ed25519 server secret seed (hex) for built-in HAP receiving.
+    pub server_sk_hex: Option<String>,
+    /// Persistent 6-byte MAC device ID (e.g. "AA:BB:CC:DD:EE:FF") for built-in receiving.
+    pub device_id: Option<String>,
+    /// Remembered paired clients: client_id -> Ed25519 public key (hex).
+    pub paired_clients: HashMap<String, String>,
+}
+
+impl Default for ReceiverConfig {
+    fn default() -> Self {
+        let host = std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "Linux".to_string());
+        Self {
+            enabled: false,
+            mode: ReceiverMode::BuiltinAudio,
+            name: format!("NixPlay ({host})"),
+            pin_mode: false,
+            remember_devices: true,
+            h265: false,
+            output_sink: None,
+            server_sk_hex: None,
+            device_id: None,
+            paired_clients: HashMap::new(),
+        }
+    }
+}
+
+/// Preferred hardware/software video encoder for real-time screen mirroring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorEncoder {
+    #[default]
+    Auto,
+    Vaapi,
+    Nvenc,
+    Cpu,
+}
+
+/// Preferred video codec for real-time screen mirroring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorCodec {
+    #[default]
+    Auto,
+    H264,
+    Hevc,
+}
+
+/// Latency profile for real-time screen mirroring (Auto selects Low on wired Ethernet, Normal/High on Wi-Fi).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorLatencyProfile {
+    #[default]
+    Auto,
+    Low,
+    Normal,
+    High,
+}
+
+/// Saved defaults for live screen mirroring (expandable "Advanced" drawer in UI).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MirrorPrefs {
+    /// Monitor name from xrandr (e.g. "DP-1") or None for primary/auto.
+    pub display: Option<String>,
+    pub fps: u32,
+    /// Target bitrate in kbps (0 = automatic based on resolution/codec).
+    pub bitrate_kbps: u32,
+    pub encoder: MirrorEncoder,
+    pub codec: MirrorCodec,
+    pub latency: MirrorLatencyProfile,
+    pub show_cursor: bool,
+}
+
+impl Default for MirrorPrefs {
+    fn default() -> Self {
+        Self {
+            display: None,
+            fps: 30,
+            bitrate_kbps: 0,
+            encoder: MirrorEncoder::Auto,
+            codec: MirrorCodec::Auto,
+            latency: MirrorLatencyProfile::Auto,
+            show_cursor: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Local HTTP/Web UI bind host (127.0.0.1 for desktop, 0.0.0.0 for headless Pi / LAN control)
@@ -75,6 +195,12 @@ pub struct AppConfig {
     /// Per-device preferences keyed by normalized device id
     #[serde(default)]
     pub devices: HashMap<String, DevicePrefs>,
+    /// AirPlay receiver (iPhone/iPad/Mac -> Linux) settings
+    #[serde(default)]
+    pub receiver: ReceiverConfig,
+    /// Screen mirroring sender advanced defaults
+    #[serde(default)]
+    pub mirror: MirrorPrefs,
 }
 
 fn default_bind() -> String {
@@ -108,6 +234,8 @@ impl Default for AppConfig {
             enable_tray: true,
             master_volume: default_master_volume(),
             devices: HashMap::new(),
+            receiver: ReceiverConfig::default(),
+            mirror: MirrorPrefs::default(),
         }
     }
 }

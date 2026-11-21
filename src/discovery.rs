@@ -253,16 +253,23 @@ impl DiscoveryService {
     pub async fn add_manual(
         &self,
         name: String,
-        ip: Ipv4Addr,
+        ip: IpAddr,
         port: u16,
         protocol: AirPlayProtocol,
     ) -> AirPlayDevice {
-        let id = format!("MANUAL-{}", ip.to_string().replace('.', ""));
+        let id = format!(
+            "MANUAL-{}",
+            ip.to_string()
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+                .to_uppercase()
+        );
         let dev = AirPlayDevice {
             id: id.clone(),
             name,
             host: ip.to_string(),
-            ip: IpAddr::V4(ip),
+            ip,
             scope_id: 0,
             airplay_port: if protocol == AirPlayProtocol::AirPlay2 {
                 Some(port)
@@ -566,4 +573,154 @@ fn parse_avahi_txt(raw: &str) -> HashMap<String, String> {
         }
     }
     map
+}
+
+/// Parsed user-entered manual AirPlay receiver address:
+/// supports IPv4 (`192.168.1.50`, `192.168.1.50:7000`), IPv6 (`fe80::1`, `[fe80::1]:7000`),
+/// and hostnames (`appletv.local`, `living-room.lan:7000`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedAddress {
+    pub host: String,
+    pub port: Option<u16>,
+}
+
+pub fn parse_manual_address(input: &str) -> Result<ParsedAddress, String> {
+    let s = input.trim();
+    if s.is_empty() {
+        return Err("Enter an IP address or hostname (e.g. 192.168.1.50 or tv.local).".into());
+    }
+    if s.contains("://") || s.contains('/') {
+        return Err("Enter just the address or hostname, without http:// or paths.".into());
+    }
+    if s.chars().any(char::is_whitespace) {
+        return Err("An address or hostname cannot contain spaces.".into());
+    }
+
+    // Bracketed IPv6: [fe80::1] or [fe80::1]:7000
+    if let Some(rest) = s.strip_prefix('[') {
+        let (ip_str, after) = rest
+            .split_once(']')
+            .ok_or_else(|| "Missing closing ']' for IPv6 address.".to_string())?;
+        let ip: std::net::Ipv6Addr = ip_str
+            .parse()
+            .map_err(|_| format!("'{ip_str}' is not a valid IPv6 address."))?;
+        let port = if after.is_empty() {
+            None
+        } else if let Some(p_str) = after.strip_prefix(':') {
+            let p: u16 = p_str
+                .parse()
+                .ok()
+                .filter(|&p| p > 0)
+                .ok_or_else(|| "Port must be between 1 and 65535.".to_string())?;
+            Some(p)
+        } else {
+            return Err("Unexpected characters after ']'.".into());
+        };
+        return Ok(ParsedAddress {
+            host: ip.to_string(),
+            port,
+        });
+    }
+
+    // Bare IPv6 (contains at least two colons)
+    if s.matches(':').count() >= 2 {
+        let ip: std::net::Ipv6Addr = s
+            .parse()
+            .map_err(|_| format!("'{s}' is not a valid IPv6 address."))?;
+        return Ok(ParsedAddress {
+            host: ip.to_string(),
+            port: None,
+        });
+    }
+
+    // IPv4 or hostname with optional :port
+    let (host, port) = if let Some((h, p_str)) = s.rsplit_once(':') {
+        let p: u16 = p_str
+            .parse()
+            .ok()
+            .filter(|&p| p > 0)
+            .ok_or_else(|| "Port must be between 1 and 65535.".to_string())?;
+        (h, Some(p))
+    } else {
+        (s, None)
+    };
+
+    if host.is_empty() {
+        return Err("Enter an IP address or hostname before ':port'.".into());
+    }
+
+    // Accept IPv4 directly
+    if let Ok(v4) = host.parse::<Ipv4Addr>() {
+        return Ok(ParsedAddress {
+            host: v4.to_string(),
+            port,
+        });
+    }
+
+    // Validate hostname characters
+    let valid_host = host
+        .split('.')
+        .all(|label| !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    if !valid_host {
+        return Err(format!("'{host}' is not a valid IP address or hostname."));
+    }
+
+    Ok(ParsedAddress {
+        host: host.to_lowercase(),
+        port,
+    })
+}
+
+/// Resolve a parsed manual address (IP or hostname) into an `IpAddr` + port.
+pub async fn resolve_manual_address(
+    input: &str,
+    default_port: u16,
+) -> Result<(IpAddr, u16, String), String> {
+    let parsed = parse_manual_address(input)?;
+    let port = parsed.port.unwrap_or(default_port);
+    if let Ok(ip) = parsed.host.parse::<IpAddr>() {
+        return Ok((ip, port, parsed.host));
+    }
+    let addrs = tokio::net::lookup_host((parsed.host.as_str(), port))
+        .await
+        .map_err(|_| format!("Could not resolve hostname '{}'. Check spelling or enter its IP address.", parsed.host))?;
+    let mut picked: Option<IpAddr> = None;
+    for sa in addrs {
+        if sa.is_ipv4() {
+            picked = Some(sa.ip());
+            break;
+        }
+        if picked.is_none() {
+            picked = Some(sa.ip());
+        }
+    }
+    let ip = picked.ok_or_else(|| format!("Hostname '{}' returned no IP addresses.", parsed.host))?;
+    Ok((ip, port, parsed.host))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_ipv4_ipv6_and_hostnames() {
+        assert_eq!(
+            parse_manual_address("192.168.1.50").unwrap(),
+            ParsedAddress { host: "192.168.1.50".into(), port: None }
+        );
+        assert_eq!(
+            parse_manual_address("192.168.1.50:7100").unwrap(),
+            ParsedAddress { host: "192.168.1.50".into(), port: Some(7100) }
+        );
+        assert_eq!(
+            parse_manual_address("[fe80::1]:7000").unwrap(),
+            ParsedAddress { host: "fe80::1".into(), port: Some(7000) }
+        );
+        assert_eq!(
+            parse_manual_address("LivingRoom.local:7000").unwrap(),
+            ParsedAddress { host: "livingroom.local".into(), port: Some(7000) }
+        );
+        assert!(parse_manual_address("http://192.168.1.50").is_err());
+        assert!(parse_manual_address("192.168.1.50:0").is_err());
+    }
 }

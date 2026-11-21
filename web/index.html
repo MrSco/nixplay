@@ -136,7 +136,7 @@
   /* Segmented Tabs */
   .tabs {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 4px;
     padding: 4px;
     border-radius: 12px;
@@ -374,6 +374,59 @@
     font-size: 28px !important; letter-spacing: 0.45em; text-align: center; font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
+  .pin-banner {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(129, 140, 248, 0.16));
+    border: 1px solid var(--border-active); border-radius: 13px; padding: 14px;
+    text-align: center; display: flex; flex-direction: column; gap: 4px;
+  }
+  .pin-code-display {
+    font-size: 34px; font-weight: 800; letter-spacing: 0.35em; padding-left: 0.35em;
+    font-variant-numeric: tabular-nums; color: var(--accent);
+  }
+  details.adv-drawer {
+    border: 1px solid var(--border); border-radius: 11px; padding: 8px 11px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  details.adv-drawer summary {
+    cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-muted);
+    list-style: none; display: flex; align-items: center; justify-content: space-between;
+    user-select: none;
+  }
+  details.adv-drawer summary::-webkit-details-marker { display: none; }
+  details.adv-drawer[open] summary { color: var(--text); margin-bottom: 10px; }
+  .adv-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 9px;
+  }
+  .adv-field { display: flex; flex-direction: column; gap: 4px; }
+  .adv-field label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+  .adv-field select, .adv-field input[type="text"] {
+    width: 100%; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04); color: var(--text); font-size: 12.5px;
+  }
+  .doctor-item {
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px;
+    display: flex; flex-direction: column; gap: 4px; font-size: 12px;
+  }
+  .doctor-item.ok { border-color: rgba(52, 211, 153, 0.3); }
+  .doctor-item.warning { border-color: rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.06); }
+  .doctor-item.error { border-color: rgba(248, 113, 113, 0.45); background: rgba(248, 113, 113, 0.08); }
+  .doctor-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; }
+  .doctor-detail { color: var(--text-muted); line-height: 1.4; }
+  .doctor-fix {
+    margin-top: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; background: rgba(0, 0, 0, 0.25); padding: 5px 7px; border-radius: 6px;
+    color: var(--accent); word-break: break-all;
+  }
+  .mode-pills { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mode-pill {
+    border: 1px solid var(--border); border-radius: 11px; padding: 10px 11px;
+    background: rgba(255,255,255,0.02); color: var(--text); text-align: left;
+    cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; gap: 3px;
+  }
+  .mode-pill:hover { border-color: var(--border-active); }
+  .mode-pill.active { background: var(--surface-active); border-color: var(--border-active); }
+  .mode-pill strong { font-size: 12.5px; }
+  .mode-pill span { font-size: 11px; color: var(--text-muted); }
   .footer { text-align: center; font-size: 11px; color: var(--text-muted); opacity: 0.8; padding-top: 4px; }
 </style>
 </head>
@@ -393,10 +446,13 @@
       </div>
     </div>
     <div class="header-actions">
+      <button class="icon-btn" title="Network &amp; System Doctor" onclick="openDoctorModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+      </button>
       <button class="icon-btn" title="Rescan AirPlay receivers" onclick="rescan()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
       </button>
-      <button class="icon-btn" title="Add receiver manually by IP" onclick="openManualModal()">
+      <button class="icon-btn" title="Add receiver manually by IP or hostname" onclick="openManualModal()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
       <button class="icon-btn" title="Toggle light/dark theme" onclick="toggleTheme()">
@@ -405,15 +461,19 @@
     </div>
   </header>
 
-  <!-- Mode Switcher: Audio vs Video Cast -->
+  <!-- Mode Switcher: Audio vs Video Cast vs Receive -->
   <nav class="tabs">
     <button class="tab-btn active" id="tabBtnAudio" onclick="switchTab('audio')">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-      Audio &amp; Multi-Room
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      Audio
     </button>
     <button class="tab-btn" id="tabBtnVideo" onclick="switchTab('video')">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><polygon points="10 8.5 15.5 11 10 13.5 10 8.5" fill="currentColor" stroke="none"/><line x1="8" y1="21" x2="16" y2="21"/></svg>
-      Video &amp; Screen Cast
+      Video &amp; Mirror
+    </button>
+    <button class="tab-btn" id="tabBtnReceive" onclick="switchTab('receive')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><polygon points="12 15 17 21 7 21 12 15"/></svg>
+      Receive
     </button>
   </nav>
 
@@ -592,6 +652,68 @@
           <option value="none">No audio</option>
         </select>
       </div>
+      <details class="adv-drawer" id="mirrorAdvDrawer">
+        <summary>
+          <span>Advanced Mirror Options</span>
+          <span class="pill" id="hwEncBadge">Auto</span>
+        </summary>
+        <div class="adv-grid">
+          <div class="adv-field" style="grid-column: 1 / -1;">
+            <label for="mDisplay">Display</label>
+            <select id="mDisplay" onchange="saveMirrorPrefs()"></select>
+          </div>
+          <div class="adv-field">
+            <label for="mFps">Frame Rate</label>
+            <select id="mFps" onchange="saveMirrorPrefs()">
+              <option value="30">30 fps (Default)</option>
+              <option value="60">60 fps (Smooth)</option>
+            </select>
+          </div>
+          <div class="adv-field">
+            <label for="mEncoder">Encoder</label>
+            <select id="mEncoder" onchange="saveMirrorPrefs()">
+              <option value="auto">Auto (Best HW)</option>
+              <option value="vaapi">VAAPI (AMD/Intel)</option>
+              <option value="nvenc">NVENC (NVIDIA)</option>
+              <option value="cpu">CPU (libx264/265)</option>
+            </select>
+          </div>
+          <div class="adv-field">
+            <label for="mCodec">Video Codec</label>
+            <select id="mCodec" onchange="saveMirrorPrefs()">
+              <option value="auto">Auto</option>
+              <option value="h264">H.264 (1080p)</option>
+              <option value="hevc">HEVC / H.265 (up to 4K)</option>
+            </select>
+          </div>
+          <div class="adv-field">
+            <label for="mLatency">Latency Profile</label>
+            <select id="mLatency" onchange="saveMirrorPrefs()">
+              <option value="auto">Auto (Wired/Wi-Fi)</option>
+              <option value="low">Low (~40ms, Wired)</option>
+              <option value="normal">Normal (~75ms)</option>
+              <option value="high">High (~100ms, Busy Wi-Fi)</option>
+            </select>
+          </div>
+          <div class="adv-field">
+            <label for="mBitrate">Bitrate</label>
+            <select id="mBitrate" onchange="saveMirrorPrefs()">
+              <option value="0">Auto</option>
+              <option value="4000">4 Mbps</option>
+              <option value="8000">8 Mbps</option>
+              <option value="12000">12 Mbps</option>
+              <option value="18000">18 Mbps (4K)</option>
+            </select>
+          </div>
+          <div class="adv-field" style="justify-content:center;">
+            <label for="mCursor">Mouse Cursor</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--text);">
+              <input type="checkbox" id="mCursor" checked onchange="saveMirrorPrefs()">
+              Show cursor
+            </label>
+          </div>
+        </div>
+      </details>
       <div class="hint-box" id="ffmpegHint" style="display:none;">
         Live screen casting requires <code>ffmpeg</code>. Install it once with:<br>
         <code>sudo apt install ffmpeg</code>
@@ -605,31 +727,174 @@
    </div>
   </div>
 
-  <div class="footer" id="footerMeta">NixPlay — Lossless ALAC AirPlay 2 Audio &amp; Video for Linux</div>
+  <!-- ==================== RECEIVE TAB (TWO-WAY AIRPLAY) ==================== -->
+  <div class="tab-panel" id="panelReceive">
+   <div class="panel-grid">
+    <div class="panel-col">
+      <section class="card" style="display:flex;flex-direction:column;gap:12px;">
+        <div class="card-title" style="margin-bottom:0;">
+          <span>Receive AirPlay on this PC</span>
+          <span class="pill" id="rxStateBadge">Off</span>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" id="rxToggleLabel">Ready to receive from iPhone, iPad &amp; Mac</div>
+            <div class="toggle-desc" id="rxToggleSub">Turn on so Apple devices see this Linux PC as an AirPlay receiver</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="rxEnableToggle" onchange="toggleReceiver(this.checked)">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
+        <div class="mode-pills">
+          <button type="button" class="mode-pill active" id="rxModeBuiltin" onclick="setReceiverMode('builtin_audio')">
+            <strong>Audio Only (Built-in)</strong>
+            <span>Pure Rust AirPlay 2 &amp; RAOP · zero deps</span>
+          </button>
+          <button type="button" class="mode-pill" id="rxModeUxplay" onclick="setReceiverMode('uxplay')">
+            <strong>Screen Mirror + Audio</strong>
+            <span id="rxUxplaySub">Uses uxplay window</span>
+          </button>
+        </div>
+
+        <div class="hint-box" id="rxUxplayHint" style="display:none;">
+          Screen mirroring receive uses <code>uxplay</code>. Install it with <code>sudo apt install uxplay</code> (or use <strong>Audio Only</strong> built-in with zero extra packages).
+        </div>
+        <div class="error-banner" id="rxErrorBox" style="display:none;margin-top:0;"></div>
+      </section>
+
+      <section class="pin-banner" id="rxPinBanner" style="display:none;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);">ENTER THIS AIRPLAY PIN ON YOUR APPLE DEVICE</div>
+        <div class="pin-code-display" id="rxPinCode">0000</div>
+      </section>
+
+      <section class="video-now-bar" id="rxNowCard" style="display:none;">
+        <div class="now-playing">
+          <div class="album-art" id="rxArt">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </div>
+          <div class="track-info">
+            <div class="track-title" id="rxNowTitle">Connected</div>
+            <div class="track-sub" id="rxNowSub">Receiving AirPlay</div>
+          </div>
+          <div class="media-controls" id="rxDacpControls" style="display:none;">
+            <button class="media-btn" title="Previous on device" onclick="rxDacp('previous')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            </button>
+            <button class="media-btn" title="Play / Pause on device" onclick="rxDacp('play-pause')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button class="media-btn" title="Next on device" onclick="rxDacp('next')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="actions-bar">
+          <button class="btn danger" onclick="rxDisconnect()">Disconnect Device</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="panel-col">
+      <section class="card" style="display:flex;flex-direction:column;gap:11px;">
+        <div class="card-title" style="margin-bottom:0;">
+          <span>Receiver Settings</span>
+          <span class="pill" id="rxPortPill">AirPlay 2</span>
+        </div>
+        <div class="adv-field">
+          <label for="rxNameInput">Broadcast Name (shown on iPhone / Mac)</label>
+          <div class="input-row">
+            <input type="text" id="rxNameInput" maxlength="63" placeholder="NixPlay (Linux)" style="flex:1;"
+                   onkeydown="if(event.key==='Enter') saveReceiverSettings()">
+            <button class="btn" style="flex:0 0 auto;min-width:68px;" onclick="saveReceiverSettings()">Save</button>
+          </div>
+        </div>
+        <div class="adv-field">
+          <label for="rxSinkSelect">Output Speaker</label>
+          <select id="rxSinkSelect" onchange="saveReceiverSettings()"></select>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Require a 4-digit PIN</div>
+            <div class="toggle-desc">Show an on-screen code for new Apple devices</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="rxPinToggle" onchange="saveReceiverSettings()">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row" id="rxRememberRow">
+          <div>
+            <div class="toggle-label">Remember paired devices</div>
+            <div class="toggle-desc" id="rxPairedCountDesc">Only ask each device for the PIN once</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="rxRememberToggle" checked onchange="saveReceiverSettings()">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row" id="rxH265Row" style="display:none;">
+          <div>
+            <div class="toggle-label">High-efficiency video (H.265)</div>
+            <div class="toggle-desc">Enable for newer iPhones in uxplay screen mirroring mode</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="rxH265Toggle" onchange="saveReceiverSettings()">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <button class="btn" id="rxForgetBtn" onclick="rxForgetPaired()" style="display:none;">Forget Remembered Devices</button>
+      </section>
+    </div>
+   </div>
+  </div>
+
+  <div class="footer" id="footerMeta">NixPlay — Two-Way Lossless AirPlay 2 Audio, Video &amp; Mirroring for Linux</div>
 </div>
 
 <!-- Manual Speaker Modal -->
 <div class="modal-backdrop" id="manualModal" onclick="if(event.target===this) closeManualModal()">
   <div class="modal">
-    <h3 style="font-size:15px;font-weight:700;">Add AirPlay Receiver by IP</h3>
+    <h3 style="font-size:15px;font-weight:700;">Add AirPlay Receiver Manually</h3>
     <div class="field">
-      <label>Display Name</label>
+      <label>Display Name (optional)</label>
       <input type="text" id="mName" placeholder="e.g. Office HomePod">
     </div>
     <div class="field">
-      <label>IPv4 Address</label>
-      <input type="text" id="mIp" placeholder="e.g. 192.168.1.50">
+      <label>IP Address or Hostname (optional :port)</label>
+      <input type="text" id="mIp" placeholder="e.g. 192.168.1.50, tv.local:7000, or [fe80::1]:7000"
+             onkeydown="if(event.key==='Enter') submitManual()">
     </div>
     <div class="field">
       <label>Protocol</label>
       <select id="mProto">
-        <option value="airplay2">AirPlay 2 (Port 7000 — HomePod, Apple TV, Mac)</option>
-        <option value="raop">AirPlay 1 / RAOP (Port 5000 — Legacy)</option>
+        <option value="airplay2">AirPlay 2 (Default port 7000 — HomePod, Apple TV, Mac)</option>
+        <option value="raop">AirPlay 1 / RAOP (Default port 5000 — Legacy)</option>
       </select>
     </div>
+    <div class="error-banner" id="manualError" style="display:none;margin-top:0;"></div>
     <div class="actions-bar" style="margin-top:4px;">
       <button class="btn" onclick="closeManualModal()">Cancel</button>
       <button class="btn primary" onclick="submitManual()">Add Receiver</button>
+    </div>
+  </div>
+</div>
+
+<!-- Network & System Doctor Modal -->
+<div class="modal-backdrop" id="doctorModal" onclick="if(event.target===this) closeDoctorModal()">
+  <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <h3 style="font-size:15px;font-weight:700;">Network &amp; System Doctor</h3>
+      <span class="pill" id="doctorSummaryPill">Checking…</span>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);" id="doctorSummaryText">
+      Read-only check of mDNS, firewall, VPN routes, PipeWire, and encoders.
+    </p>
+    <div id="doctorFindings" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="actions-bar" style="margin-top:4px;">
+      <button class="btn" onclick="runDoctor()">Re-check</button>
+      <button class="btn primary" onclick="closeDoctorModal()">Done</button>
     </div>
   </div>
 </div>
@@ -675,8 +940,10 @@ function switchTab(tab) {
   activeTab = tab;
   document.getElementById('tabBtnAudio').classList.toggle('active', tab === 'audio');
   document.getElementById('tabBtnVideo').classList.toggle('active', tab === 'video');
+  document.getElementById('tabBtnReceive').classList.toggle('active', tab === 'receive');
   document.getElementById('panelAudio').classList.toggle('active', tab === 'audio');
   document.getElementById('panelVideo').classList.toggle('active', tab === 'video');
+  document.getElementById('panelReceive').classList.toggle('active', tab === 'receive');
 }
 
 function deviceIconSvg(kind) {
@@ -725,12 +992,19 @@ function render(state) {
   // Header status
   const dot = document.getElementById('liveDot');
   const statusText = document.getElementById('statusText');
-  if (videoActive) {
+  const rx = state.receiver || {};
+  if (rx.state === 'connected') {
+    dot.classList.add('live');
+    statusText.textContent = `Receiving from ${rx.client_name || 'Apple device'}`;
+  } else if (videoActive) {
     dot.classList.add('live');
     statusText.textContent = `Casting video to ${state.video.device_name || 'TV'}`;
   } else if (activeCount > 0) {
     dot.classList.add('live');
     statusText.textContent = activeCount === 1 ? 'Streaming audio to 1 speaker' : `Multi-room (${activeCount} speakers)`;
+  } else if (rx.enabled) {
+    dot.classList.add('live');
+    statusText.textContent = `Ready to receive · ${state.speakers.length} speaker${state.speakers.length === 1 ? '' : 's'}`;
   } else {
     dot.classList.remove('live');
     statusText.textContent = `${state.speakers.length} AirPlay receiver${state.speakers.length === 1 ? '' : 's'} ready`;
@@ -780,8 +1054,9 @@ function render(state) {
     appList.style.display = 'none';
   }
 
-  // Video panel sync
+  // Video & Receive panels sync
   renderVideoSection(state);
+  renderReceiveSection(state);
 
   // Speakers list
   if (draggingSlider) return;
@@ -952,6 +1227,144 @@ function renderVideoSection(state) {
   } else {
     errBox.style.display = 'none';
   }
+
+  // Mirror Advanced options & hardware capabilities
+  const mp = state.mirror_prefs || {};
+  const hw = state.hw_encoders || {};
+  const displays = state.displays || [];
+  const dispSel = document.getElementById('mDisplay');
+  if (dispSel) {
+    const dispHtml = `<option value="auto">Primary Monitor (Auto)</option>` + displays.map(d =>
+      `<option value="${escapeHtml(d.name)}">${escapeHtml(d.name)} — ${d.width}×${d.height}${d.primary ? ' (Primary)' : ''}</option>`
+    ).join('');
+    if (dispSel.dataset.lastHtml !== dispHtml) {
+      dispSel.innerHTML = dispHtml;
+      dispSel.dataset.lastHtml = dispHtml;
+    }
+    if (document.activeElement !== dispSel) dispSel.value = mp.display || 'auto';
+  }
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && document.activeElement !== el) el.value = String(val);
+  };
+  setVal('mFps', mp.fps || 30);
+  setVal('mEncoder', mp.encoder || 'auto');
+  setVal('mCodec', mp.codec || 'auto');
+  setVal('mLatency', mp.latency || 'auto');
+  setVal('mBitrate', mp.bitrate_kbps || 0);
+  const curEl = document.getElementById('mCursor');
+  if (curEl) curEl.checked = mp.show_cursor !== false;
+
+  const hwBadge = document.getElementById('hwEncBadge');
+  if (hwBadge) {
+    const tags = [];
+    if (hw.nvenc_h264) tags.push('NVENC');
+    if (hw.vaapi_h264) tags.push('VAAPI');
+    if (hw.hevc_available || hw.nvenc_hevc || hw.vaapi_hevc) tags.push('HEVC');
+    hwBadge.textContent = tags.length ? tags.join(' · ') : 'CPU';
+    hwBadge.className = 'pill ' + (tags.length ? 'streaming' : 'ap2');
+  }
+}
+
+function renderReceiveSection(state) {
+  const rx = state.receiver || {};
+  const toggle = document.getElementById('rxEnableToggle');
+  if (toggle) toggle.checked = !!rx.enabled;
+
+  const badge = document.getElementById('rxStateBadge');
+  if (badge) {
+    const map = {
+      stopped: ['Off', ''],
+      listening: ['Listening', 'ap2'],
+      pin_required: ['PIN Required', 'connecting'],
+      connected: ['Connected', 'streaming'],
+      error: ['Error', 'connecting'],
+    };
+    const [label, cls] = map[rx.state] || ['Off', ''];
+    badge.textContent = label;
+    badge.className = 'pill ' + cls;
+  }
+
+  document.getElementById('rxToggleLabel').textContent = rx.enabled
+    ? `Visible as "${rx.name || 'NixPlay'}"`
+    : 'Ready to receive from iPhone, iPad & Mac';
+  document.getElementById('rxToggleSub').textContent = rx.enabled
+    ? (rx.mode === 'uxplay'
+        ? 'Open Screen Mirroring or AirPlay on your Apple device and pick this PC'
+        : 'Open AirPlay Audio on your iPhone, iPad, or Mac and pick this PC')
+    : 'Turn on so Apple devices see this Linux PC as an AirPlay receiver';
+
+  document.getElementById('rxModeBuiltin').classList.toggle('active', rx.mode !== 'uxplay');
+  document.getElementById('rxModeUxplay').classList.toggle('active', rx.mode === 'uxplay');
+  document.getElementById('rxUxplaySub').textContent = rx.uxplay_available
+    ? 'uxplay ready · video + audio'
+    : 'Requires uxplay package';
+  document.getElementById('rxUxplayHint').style.display = (!rx.uxplay_available && rx.mode === 'uxplay') ? 'block' : 'none';
+  document.getElementById('rxH265Row').style.display = rx.mode === 'uxplay' ? 'flex' : 'none';
+
+  const portPill = document.getElementById('rxPortPill');
+  if (portPill) {
+    portPill.textContent = rx.listening_port ? `Port ${rx.listening_port}` : (rx.mode === 'uxplay' ? 'uxplay' : 'AirPlay 2');
+  }
+
+  const errBox = document.getElementById('rxErrorBox');
+  if (rx.error) {
+    errBox.style.display = 'flex';
+    errBox.textContent = rx.error;
+  } else {
+    errBox.style.display = 'none';
+  }
+
+  const pinBanner = document.getElementById('rxPinBanner');
+  if (rx.pin_code) {
+    pinBanner.style.display = 'flex';
+    document.getElementById('rxPinCode').textContent = rx.pin_code;
+  } else {
+    pinBanner.style.display = 'none';
+  }
+
+  const nowCard = document.getElementById('rxNowCard');
+  if (rx.state === 'connected') {
+    nowCard.style.display = 'flex';
+    const tr = rx.track || {};
+    document.getElementById('rxNowTitle').textContent = tr.title || rx.client_name || 'Connected Device';
+    const subParts = [tr.artist, tr.album, rx.client_name, rx.stream_kind].filter(Boolean);
+    document.getElementById('rxNowSub').textContent = subParts.join(' · ') || 'Receiving AirPlay';
+    const artEl = document.getElementById('rxArt');
+    artEl.innerHTML = tr.art_data_url
+      ? `<img src="${escapeHtml(tr.art_data_url)}" alt="">`
+      : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+    document.getElementById('rxDacpControls').style.display = rx.has_dacp ? 'flex' : 'none';
+  } else {
+    nowCard.style.display = 'none';
+  }
+
+  const nameIn = document.getElementById('rxNameInput');
+  if (nameIn && document.activeElement !== nameIn && rx.name) {
+    nameIn.value = rx.name;
+  }
+  document.getElementById('rxPinToggle').checked = !!rx.pin_mode;
+  document.getElementById('rxRememberToggle').checked = rx.remember_devices !== false;
+  document.getElementById('rxH265Toggle').checked = !!rx.h265;
+  document.getElementById('rxRememberRow').style.display = rx.pin_mode ? 'flex' : 'none';
+  const pairedCount = rx.paired_count || 0;
+  document.getElementById('rxPairedCountDesc').textContent = pairedCount > 0
+    ? `${pairedCount} remembered device${pairedCount === 1 ? '' : 's'}`
+    : 'Only ask each device for the PIN once';
+  document.getElementById('rxForgetBtn').style.display = pairedCount > 0 ? 'inline-flex' : 'none';
+
+  const sinkSel = document.getElementById('rxSinkSelect');
+  if (sinkSel) {
+    const sinks = rx.output_sinks || [];
+    const sinkHtml = `<option value="">System Default Output</option>` + sinks.map(s =>
+      `<option value="${escapeHtml(s.name)}">${escapeHtml(s.description)}${s.is_default ? ' (Default)' : ''}</option>`
+    ).join('');
+    if (sinkSel.dataset.lastHtml !== sinkHtml) {
+      sinkSel.innerHTML = sinkHtml;
+      sinkSel.dataset.lastHtml = sinkHtml;
+    }
+    if (document.activeElement !== sinkSel) sinkSel.value = rx.output_sink || '';
+  }
 }
 
 function updateVideoTargetBadge() {
@@ -1089,17 +1502,104 @@ async function handleFilePicked(file) {
   }
 }
 
+function readMirrorFormOptions() {
+  return {
+    display: document.getElementById('mDisplay')?.value || 'auto',
+    fps: Number(document.getElementById('mFps')?.value || 30),
+    bitrate_kbps: Number(document.getElementById('mBitrate')?.value || 0),
+    encoder: document.getElementById('mEncoder')?.value || 'auto',
+    codec: document.getElementById('mCodec')?.value || 'auto',
+    latency: document.getElementById('mLatency')?.value || 'auto',
+    show_cursor: document.getElementById('mCursor')?.checked !== false,
+  };
+}
+
+function saveMirrorPrefs() {
+  api('/api/video/mirror-prefs', readMirrorFormOptions());
+}
+
 async function castScreen() {
   const device_id = getSelectedVideoTarget();
   if (!device_id) return;
   const audio = document.getElementById('screenAudioSelect').value;
   const btn = document.getElementById('castScreenBtn');
   btn.disabled = true;
-  const res = await api('/api/video/cast-screen', { device_id, audio, fps: 30 });
+  const res = await api('/api/video/cast-screen', {
+    device_id,
+    audio,
+    ...readMirrorFormOptions(),
+  });
   btn.disabled = false;
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
     alert(d.error || 'Could not start screen cast');
+  }
+}
+
+// Two-Way Receiver actions
+async function toggleReceiver(enabled) {
+  const res = await api('/api/receiver/toggle', { enabled });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    const errBox = document.getElementById('rxErrorBox');
+    errBox.style.display = 'flex';
+    errBox.textContent = d.error || 'Could not start receiver';
+    document.getElementById('rxEnableToggle').checked = false;
+  }
+}
+
+function setReceiverMode(mode) {
+  api('/api/receiver/settings', { mode });
+}
+
+function saveReceiverSettings() {
+  api('/api/receiver/settings', {
+    name: document.getElementById('rxNameInput').value.trim(),
+    output_sink: document.getElementById('rxSinkSelect').value,
+    pin_mode: document.getElementById('rxPinToggle').checked,
+    remember_devices: document.getElementById('rxRememberToggle').checked,
+    h265: document.getElementById('rxH265Toggle').checked,
+  });
+}
+
+function rxDisconnect() { api('/api/receiver/disconnect'); }
+function rxForgetPaired() { api('/api/receiver/forget-paired'); }
+function rxDacp(action) { api(`/api/receiver/dacp/${action}`); }
+
+// Network & System Doctor modal
+function openDoctorModal() {
+  document.getElementById('doctorModal').classList.add('open');
+  runDoctor();
+}
+function closeDoctorModal() {
+  document.getElementById('doctorModal').classList.remove('open');
+}
+async function runDoctor() {
+  const pill = document.getElementById('doctorSummaryPill');
+  const txt = document.getElementById('doctorSummaryText');
+  const list = document.getElementById('doctorFindings');
+  pill.textContent = 'Checking…';
+  pill.className = 'pill connecting';
+  list.innerHTML = '';
+  try {
+    const res = await fetch('/api/doctor');
+    const r = await res.json();
+    pill.textContent = r.healthy ? 'All Clear' : (r.errors > 0 ? `${r.errors} Error` : `${r.warnings} Check`);
+    pill.className = 'pill ' + (r.healthy ? 'streaming' : 'connecting');
+    txt.textContent = r.summary;
+    list.innerHTML = (r.findings || []).map(f => `
+      <div class="doctor-item ${escapeHtml(f.severity)}">
+        <div class="doctor-head">
+          <span>${escapeHtml(f.title)}</span>
+          <span class="pill ${f.severity === 'ok' ? 'streaming' : f.severity === 'info' ? 'ap2' : 'connecting'}">${escapeHtml(f.severity.toUpperCase())}</span>
+        </div>
+        ${f.detail ? `<div class="doctor-detail">${escapeHtml(f.detail)}</div>` : ''}
+        ${f.fix_hint ? `<div class="doctor-fix">${escapeHtml(f.fix_hint)}</div>` : ''}
+      </div>
+    `).join('');
+  } catch (e) {
+    pill.textContent = 'Failed';
+    txt.textContent = 'Could not load diagnostics.';
   }
 }
 
@@ -1121,19 +1621,26 @@ dz.addEventListener('drop', e => {
 });
 
 // Manual add modal
-function openManualModal() { document.getElementById('manualModal').classList.add('open'); }
+function openManualModal() {
+  document.getElementById('manualError').style.display = 'none';
+  document.getElementById('manualModal').classList.add('open');
+}
 function closeManualModal() { document.getElementById('manualModal').classList.remove('open'); }
 async function submitManual() {
-  const name = document.getElementById('mName').value.trim() || 'AirPlay Receiver';
+  const name = document.getElementById('mName').value.trim();
   const ip = document.getElementById('mIp').value.trim();
   const protocol = document.getElementById('mProto').value;
+  const errEl = document.getElementById('manualError');
+  errEl.style.display = 'none';
   const res = await api('/api/speakers/manual', { name, ip, protocol });
-  if (res.ok) {
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.ok) {
     closeManualModal();
     document.getElementById('mName').value = '';
     document.getElementById('mIp').value = '';
   } else {
-    alert('Please enter a valid IPv4 address.');
+    errEl.textContent = data.error || 'Please enter a valid IP address or hostname.';
+    errEl.style.display = 'block';
   }
 }
 
@@ -1153,8 +1660,9 @@ function connectWs() {
 
 fetch('/api/state').then(r => r.json()).then(render).catch(() => {});
 connectWs();
-// Deep link to a tab, e.g. http://127.0.0.1:17420/#video
+// Deep link to a tab, e.g. http://127.0.0.1:17420/#video or #receive
 if (location.hash === '#video') switchTab('video');
+if (location.hash === '#receive') switchTab('receive');
 </script>
 </body>
 </html>

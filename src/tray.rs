@@ -1,4 +1,5 @@
 use crate::airplay::{SessionManager, SpeakerSnapshot, SpeakerState};
+use crate::receiver::ReceiverManager;
 use ksni::menu::{CheckmarkItem, MenuItem, StandardItem};
 use ksni::{Icon, ToolTip, Tray, TrayMethods};
 use std::sync::Arc;
@@ -7,9 +8,12 @@ use tracing::{debug, info, warn};
 
 pub struct NixPlayTray {
     manager: Arc<SessionManager>,
+    receiver: Arc<ReceiverManager>,
     ui_url: String,
     speakers: Vec<SpeakerSnapshot>,
     active_count: usize,
+    receiving_enabled: bool,
+    receiving_client: Option<String>,
     shutdown_tx: broadcast::Sender<()>,
 }
 
@@ -129,13 +133,13 @@ impl Tray for NixPlayTray {
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        tray_icons(self.active_count > 0)
+        tray_icons(self.active_count > 0 || self.receiving_client.is_some())
     }
 
     fn tool_tip(&self) -> ToolTip {
-        let description = if self.active_count == 0 {
-            format!("{} speakers available — Click to open", self.speakers.len())
-        } else {
+        let description = if let Some(ref client) = self.receiving_client {
+            format!("Receiving AirPlay from {client}")
+        } else if self.active_count > 0 {
             let names: Vec<&str> = self
                 .speakers
                 .iter()
@@ -143,6 +147,13 @@ impl Tray for NixPlayTray {
                 .map(|s| s.device.name.as_str())
                 .collect();
             format!("Streaming to {}", names.join(", "))
+        } else if self.receiving_enabled {
+            format!(
+                "Ready to receive · {} speakers available",
+                self.speakers.len()
+            )
+        } else {
+            format!("{} speakers available — Click to open", self.speakers.len())
         };
         ToolTip {
             title: "NixPlay AirPlay".into(),
@@ -162,6 +173,28 @@ impl Tray for NixPlayTray {
             label: "Open NixPlay Control Center".into(),
             activate: Box::new(|this: &mut Self| {
                 open_ui_window(&this.ui_url);
+            }),
+            ..Default::default()
+        }));
+
+        let rx_checked = self.receiving_enabled;
+        let rx_label = match &self.receiving_client {
+            Some(c) => format!("Receive AirPlay (Connected: {c})"),
+            None if rx_checked => "Receive AirPlay (Listening)".into(),
+            None => "Receive AirPlay on this PC".into(),
+        };
+        items.push(MenuItem::Checkmark(CheckmarkItem {
+            label: rx_label,
+            checked: rx_checked,
+            activate: Box::new(move |this: &mut Self| {
+                let rx = this.receiver.clone();
+                tokio::spawn(async move {
+                    if rx_checked {
+                        rx.stop().await;
+                    } else {
+                        let _ = rx.start().await;
+                    }
+                });
             }),
             ..Default::default()
         }));
@@ -241,6 +274,7 @@ impl Tray for NixPlayTray {
 
 pub async fn start_tray(
     manager: Arc<SessionManager>,
+    receiver: Arc<ReceiverManager>,
     ui_url: String,
     shutdown_tx: broadcast::Sender<()>,
 ) {
@@ -249,12 +283,16 @@ pub async fn start_tray(
         .iter()
         .filter(|s| matches!(s.state, SpeakerState::Streaming | SpeakerState::Connecting))
         .count();
+    let rx_snap = receiver.snapshot().await;
 
     let tray = NixPlayTray {
         manager: manager.clone(),
+        receiver: receiver.clone(),
         ui_url,
         speakers: initial_speakers,
         active_count,
+        receiving_enabled: rx_snap.enabled,
+        receiving_client: rx_snap.client_name,
         shutdown_tx,
     };
 
@@ -276,10 +314,13 @@ pub async fn start_tray(
                             matches!(s.state, SpeakerState::Streaming | SpeakerState::Connecting)
                         })
                         .count();
+                    let rx_snap = receiver.snapshot().await;
                     let _ = handle
                         .update(move |t| {
                             t.speakers = snaps;
                             t.active_count = active;
+                            t.receiving_enabled = rx_snap.enabled;
+                            t.receiving_client = rx_snap.client_name;
                         })
                         .await;
                 }

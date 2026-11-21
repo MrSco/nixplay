@@ -2,19 +2,24 @@ mod airplay;
 mod audio;
 mod config;
 mod discovery;
+mod doctor;
 mod instance;
 mod media_server;
 mod mpris;
+mod netwatch;
+mod receiver;
 mod tray;
 mod web;
 
+use crate::airplay::mirror::MirrorOptions;
 use crate::airplay::video::VideoCastManager;
 use crate::airplay::{SessionManager, SpeakerState};
 use crate::audio::AudioEngine;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, MirrorCodec, MirrorEncoder, MirrorLatencyProfile, ReceiverMode};
 use crate::discovery::{AirPlayProtocol, DiscoveryService};
 use crate::media_server::{MediaServer, ScreenAudio};
 use crate::mpris::MprisController;
+use crate::receiver::ReceiverManager;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::io::Write;
@@ -27,7 +32,7 @@ use tracing::{info, warn};
 #[command(
     name = "nixplay",
     version,
-    about = "Friendly, polished AirPlay 2 & AirPlay 1 (RAOP) audio & video sender for Linux"
+    about = "Two-way AirPlay 2 & AirPlay 1 (RAOP) audio, video & screen mirroring for Linux"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -82,13 +87,31 @@ enum Commands {
         source: String,
     },
     /// Mirror your Linux desktop / Steam Deck screen to an Apple TV (real-time AirPlay
-    /// mirroring, with an FFmpeg -> HLS fallback for receivers that don't support it)
+    /// mirroring with optional VAAPI/NVENC/HEVC, falling back to HLS when unsupported)
     CastScreen {
         /// Receiver name, ID, or IP address (e.g. "Living Room")
         device: String,
+        /// Monitor name from xrandr (e.g. "DP-1"); omit for primary monitor
+        #[arg(long)]
+        display: Option<String>,
         /// Frames per second (default: 30)
         #[arg(long, default_value_t = 30)]
         fps: u32,
+        /// Video bitrate in kbps (0 = auto)
+        #[arg(long, default_value_t = 0)]
+        bitrate: u32,
+        /// Video encoder: auto, vaapi, nvenc, or cpu
+        #[arg(long, default_value = "auto")]
+        encoder: String,
+        /// Video codec: auto, h264, or hevc
+        #[arg(long, default_value = "auto")]
+        codec: String,
+        /// Latency profile: auto (wired=low, wifi=normal), low, normal, or high
+        #[arg(long, default_value = "auto")]
+        latency: String,
+        /// Hide the mouse cursor in the mirrored stream
+        #[arg(long)]
+        no_cursor: bool,
         /// Cast video only without system audio
         #[arg(long, conflicts_with = "mic")]
         no_audio: bool,
@@ -96,6 +119,20 @@ enum Commands {
         #[arg(long)]
         mic: bool,
     },
+    /// Receive AirPlay audio (built-in Rust) or screen mirroring (via uxplay) on this PC
+    Receive {
+        /// Broadcast name shown on iPhone, iPad, and Mac
+        #[arg(long)]
+        name: Option<String>,
+        /// Mode: "audio" (built-in pure Rust) or "mirror" (uxplay screen mirroring + audio)
+        #[arg(long, default_value = "audio")]
+        mode: String,
+        /// Require a 4-digit PIN for unpaired devices
+        #[arg(long)]
+        pin: bool,
+    },
+    /// Run read-only network & system diagnostics for two-way AirPlay
+    Doctor,
     /// Verify pairing & audio streaming against a speaker (sends silence by default, or --chime)
     Test {
         /// Speaker name, ID, or IP address
@@ -147,7 +184,13 @@ async fn main() -> Result<()> {
         Some(Commands::Cast { device, source }) => run_cast(cfg, device, source).await,
         Some(Commands::CastScreen {
             device,
+            display,
             fps,
+            bitrate,
+            encoder,
+            codec,
+            latency,
+            no_cursor,
             no_audio,
             mic,
         }) => {
@@ -156,8 +199,20 @@ async fn main() -> Result<()> {
                 (_, true) => ScreenAudio::DesktopAndMic,
                 _ => ScreenAudio::Desktop,
             };
-            run_cast_screen(cfg, device, fps, audio).await
+            let opts = MirrorOptions {
+                fps: fps.clamp(15, 60),
+                audio,
+                display,
+                bitrate_kbps: bitrate,
+                encoder: parse_encoder(&encoder),
+                codec: parse_codec(&codec),
+                latency: parse_latency(&latency),
+                show_cursor: !no_cursor,
+            };
+            run_cast_screen(cfg, device, opts).await
         }
+        Some(Commands::Receive { name, mode, pin }) => run_receive(cfg, name, mode, pin).await,
+        Some(Commands::Doctor) => run_doctor_cli(cfg.media_port).await,
         Some(Commands::Test {
             speaker,
             seconds,
@@ -175,6 +230,32 @@ async fn main() -> Result<()> {
     }
 }
 
+fn parse_encoder(s: &str) -> MirrorEncoder {
+    match s.to_lowercase().as_str() {
+        "vaapi" => MirrorEncoder::Vaapi,
+        "nvenc" => MirrorEncoder::Nvenc,
+        "cpu" | "x264" | "software" => MirrorEncoder::Cpu,
+        _ => MirrorEncoder::Auto,
+    }
+}
+
+fn parse_codec(s: &str) -> MirrorCodec {
+    match s.to_lowercase().as_str() {
+        "h264" | "avc" => MirrorCodec::H264,
+        "hevc" | "h265" => MirrorCodec::Hevc,
+        _ => MirrorCodec::Auto,
+    }
+}
+
+fn parse_latency(s: &str) -> MirrorLatencyProfile {
+    match s.to_lowercase().as_str() {
+        "low" | "wired" => MirrorLatencyProfile::Low,
+        "normal" => MirrorLatencyProfile::Normal,
+        "high" | "wifi" => MirrorLatencyProfile::High,
+        _ => MirrorLatencyProfile::Auto,
+    }
+}
+
 async fn run_serve(
     cfg: AppConfig,
     bind_override: Option<String>,
@@ -187,7 +268,6 @@ async fn run_serve(
     let media_port = cfg.media_port;
     let enable_tray = !no_tray && cfg.enable_tray;
 
-    // Single instance: if NixPlay is already running, just show its window.
     if let Some(pid) = instance::running_daemon() {
         info!("NixPlay is already running (pid {pid}); opening its window instead of starting another copy");
         tray::open_ui_window_for(&format!("http://127.0.0.1:{port}"), pid);
@@ -198,16 +278,32 @@ async fn run_serve(
     let discovery = DiscoveryService::start()?;
     let audio = AudioEngine::new();
     let manager = SessionManager::new(discovery.clone(), audio.clone(), cfg);
-    // Recover desktop audio if a previous screen share was killed mid-session.
     crate::audio::pulse::remove_stale_screen_sinks().await;
     let media = MediaServer::start(media_port);
     let video = VideoCastManager::new(
-        discovery,
+        discovery.clone(),
         manager.config.clone(),
         media.clone(),
         manager.change_sender(),
     );
+    let receiver = ReceiverManager::new(manager.config.clone(), manager.change_sender());
+    receiver.start_if_enabled().await;
     let mpris = MprisController::start(manager.clone()).await;
+
+    // Watch for system sleep/resume or primary IP changes and refresh mDNS automatically.
+    let mut net_rx = netwatch::spawn_network_watcher();
+    {
+        let disc = discovery.clone();
+        let rx_mgr = receiver.clone();
+        let mgr = manager.clone();
+        tokio::spawn(async move {
+            while net_rx.recv().await.is_ok() {
+                disc.refresh().await;
+                rx_mgr.refresh_network().await;
+                mgr.notify_change();
+            }
+        });
+    }
 
     let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(4);
 
@@ -217,13 +313,21 @@ async fn run_serve(
     );
 
     if enable_tray {
-        tray::start_tray(manager.clone(), ui_url.clone(), shutdown_tx.clone()).await;
+        tray::start_tray(
+            manager.clone(),
+            receiver.clone(),
+            ui_url.clone(),
+            shutdown_tx.clone(),
+        )
+        .await;
     }
 
     let web_state = web::WebState {
         manager: manager.clone(),
         video: video.clone(),
+        receiver: receiver.clone(),
         mpris,
+        media_port,
     };
 
     let web_bind = bind.clone();
@@ -249,6 +353,7 @@ async fn run_serve(
         }
     }
 
+    receiver.stop().await;
     video.stop().await;
     crate::audio::pulse::remove_stale_screen_sinks().await;
     manager.disconnect_all().await;
@@ -256,6 +361,62 @@ async fn run_serve(
     audio.stop().await;
     audio.pulse.cleanup().await;
     web_handle.abort();
+    Ok(())
+}
+
+async fn run_receive(
+    mut cfg: AppConfig,
+    name: Option<String>,
+    mode: String,
+    pin: bool,
+) -> Result<()> {
+    if let Some(n) = name {
+        cfg.receiver.name = n;
+    }
+    cfg.receiver.mode = match mode.to_lowercase().as_str() {
+        "mirror" | "video" | "uxplay" => ReceiverMode::Uxplay,
+        _ => ReceiverMode::BuiltinAudio,
+    };
+    cfg.receiver.pin_mode = pin;
+
+    let (tx, _) = broadcast::channel(16);
+    let shared_cfg = std::sync::Arc::new(tokio::sync::RwLock::new(cfg));
+    let receiver = ReceiverManager::new(shared_cfg, tx);
+    receiver.start().await?;
+    let snap = receiver.snapshot().await;
+    println!(
+        "NixPlay Receive active as '{}' ({:?}{}). Press Ctrl+C to stop.",
+        snap.name,
+        snap.mode,
+        snap.listening_port
+            .map(|p| format!(", port {p}"))
+            .unwrap_or_default()
+    );
+    tokio::signal::ctrl_c().await?;
+    receiver.stop().await;
+    Ok(())
+}
+
+async fn run_doctor_cli(media_port: u16) -> Result<()> {
+    let report = doctor::run_doctor(media_port).await;
+    println!("NixPlay Network & System Doctor");
+    println!("Summary: {}", report.summary);
+    println!("{}", "-".repeat(60));
+    for f in report.findings {
+        let tag = match f.severity {
+            doctor::Severity::Ok => "[OK]  ",
+            doctor::Severity::Info => "[INFO]",
+            doctor::Severity::Warning => "[WARN]",
+            doctor::Severity::Error => "[ERR] ",
+        };
+        println!("{tag} {}", f.title);
+        if !f.detail.is_empty() {
+            println!("       {}", f.detail);
+        }
+        if let Some(hint) = f.fix_hint {
+            println!("       Tip: {hint}");
+        }
+    }
     Ok(())
 }
 
@@ -382,14 +543,13 @@ async fn run_cast(cfg: AppConfig, device: String, source: String) -> Result<()> 
     Ok(())
 }
 
-async fn run_cast_screen(cfg: AppConfig, device: String, fps: u32, screen_audio: ScreenAudio) -> Result<()> {
+async fn run_cast_screen(cfg: AppConfig, device: String, opts: MirrorOptions) -> Result<()> {
     let media_port = cfg.media_port;
     let discovery = DiscoveryService::start()?;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let audio = AudioEngine::new();
     let manager = SessionManager::new(discovery.clone(), audio, cfg);
-    // Recover desktop audio if a previous screen share was killed mid-session.
     crate::audio::pulse::remove_stale_screen_sinks().await;
     let media = MediaServer::start(media_port);
     let video = VideoCastManager::new(
@@ -399,8 +559,11 @@ async fn run_cast_screen(cfg: AppConfig, device: String, fps: u32, screen_audio:
         manager.change_sender(),
     );
 
-    println!("Starting live screen capture ({fps}fps, audio={screen_audio:?}) -> '{device}'...");
-    video.cast_screen(&device, screen_audio, fps).await?;
+    println!(
+        "Starting live screen capture ({}fps, encoder={:?}, codec={:?}, audio={:?}) -> '{}'...",
+        opts.fps, opts.encoder, opts.codec, opts.audio, device
+    );
+    video.cast_screen(&device, opts).await?;
 
     println!("Live screen casting active! Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;

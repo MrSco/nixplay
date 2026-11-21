@@ -16,7 +16,7 @@ use super::rtsp::RtspClient;
 use crate::config::AppConfig;
 use crate::discovery::{AirPlayDevice, DiscoveryService};
 use super::mirror::{run_mirror_session, MirrorOptions};
-use crate::media_server::{MediaServer, ScreenAudio};
+use crate::media_server::MediaServer;
 use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -222,12 +222,11 @@ impl VideoCastManager {
     }
 
     /// Cast the live Linux desktop / Steam Deck screen. Uses real AirPlay screen mirroring
-    /// (~0.1s delay) when the receiver supports it, otherwise falls back to FFmpeg -> HLS.
+    /// (~40–100ms delay) when the receiver supports it, otherwise falls back to FFmpeg -> HLS.
     pub async fn cast_screen(
         self: &Arc<Self>,
         device_id: &str,
-        audio: ScreenAudio,
-        fps: u32,
+        opts: MirrorOptions,
     ) -> Result<()> {
         self.stop().await;
         let device = self
@@ -235,14 +234,14 @@ impl VideoCastManager {
             .get(device_id)
             .await
             .ok_or_else(|| anyhow::anyhow!("receiver '{}' not found", device_id))?;
-        match self.start_mirroring(&device, audio, fps).await {
+        match self.start_mirroring(&device, opts.clone()).await {
             Ok(()) => return Ok(()),
             Err(e) => warn!(
                 "Real-time mirroring unavailable on '{}' ({e:#}); falling back to HLS screen cast",
                 device.name
             ),
         }
-        let url = self.media.start_screen_hls(audio, fps).await?;
+        let url = self.media.start_screen_hls(opts.audio, opts.fps).await?;
         self.cast_url(
             device_id,
             url,
@@ -256,8 +255,7 @@ impl VideoCastManager {
     async fn start_mirroring(
         self: &Arc<Self>,
         device: &AirPlayDevice,
-        audio: ScreenAudio,
-        fps: u32,
+        opts: MirrorOptions,
     ) -> Result<()> {
         let creds = {
             let cfg = self.config.read().await;
@@ -286,9 +284,7 @@ impl VideoCastManager {
         let mgr = self.clone();
         let dev = device.clone();
         let task = tokio::spawn(async move {
-            let res =
-                run_mirror_session(dev.clone(), creds, MirrorOptions { fps, audio }, stop_rx, ready_tx)
-                    .await;
+            let res = run_mirror_session(dev.clone(), creds, opts, stop_rx, ready_tx).await;
             if mgr.mirror_gen.load(Ordering::SeqCst) != gen {
                 return; // stopped or replaced; status already belongs to someone else
             }
