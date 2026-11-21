@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NixPlay — AirPlay Audio &amp; Video for Linux</title>
+<link rel="icon" type="image/png" href="/assets/icon.png">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-gradient: radial-gradient(circle at 15% -10%, rgba(56, 189, 248, 0.16), transparent 45%),
+                   radial-gradient(circle at 90% 10%, rgba(129, 140, 248, 0.13), transparent 45%);
+    --surface: rgba(24, 29, 40, 0.78);
+    --surface-hover: rgba(34, 41, 56, 0.88);
+    --surface-active: rgba(56, 189, 248, 0.14);
+    --border: rgba(255, 255, 255, 0.085);
+    --border-active: rgba(56, 189, 248, 0.48);
+    --text: #f3f6fc;
+    --text-muted: #93a1b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --radius: 16px;
+    --radius-sm: 10px;
+    --shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  }
+  [data-theme="light"] {
+    --bg: #eef2f8;
+    --bg-gradient: radial-gradient(circle at 15% -10%, rgba(14, 165, 233, 0.14), transparent 45%),
+                   radial-gradient(circle at 90% 10%, rgba(99, 102, 241, 0.12), transparent 45%);
+    --surface: rgba(255, 255, 255, 0.86);
+    --surface-hover: rgba(255, 255, 255, 0.98);
+    --surface-active: rgba(14, 165, 233, 0.10);
+    --border: rgba(15, 23, 42, 0.09);
+    --border-active: rgba(14, 165, 233, 0.45);
+    --text: #0f172a;
+    --text-muted: #5a677d;
+    --accent: #0284c7;
+    --accent-2: #6366f1;
+    --success: #059669;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    background-image: var(--bg-gradient);
+    background-attachment: fixed;
+    color: var(--text);
+    min-height: 100vh;
+    padding: 18px 16px 32px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container {
+    max-width: 520px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 2px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+  }
+  .brand-icon {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+  }
+  .brand-icon img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    filter: drop-shadow(0 4px 10px rgba(56, 189, 248, 0.28));
+  }
+  .brand h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+  .brand-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    display: inline-block;
+  }
+  .dot.live {
+    background: var(--success);
+    box-shadow: 0 0 8px var(--success);
+    animation: pulse 1.8s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(1.25); }
+  }
+  .header-actions {
+    display: flex;
+    gap: 7px;
+  }
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.16s ease;
+    backdrop-filter: blur(14px);
+  }
+  .icon-btn:hover { background: var(--surface-hover); border-color: var(--border-active); transform: translateY(-1px); }
+
+  /* Segmented Tabs */
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .tab-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-radius: 9px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    transition: all 0.16s;
+  }
+  .tab-btn.active {
+    background: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(129,140,248,0.22));
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--border-active);
+  }
+  .tab-panel { display: none; flex-direction: column; gap: 14px; }
+  .tab-panel.active { display: flex; }
+  /* Two columns when the window is wide enough; stacks in the original order otherwise. */
+  .panel-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+  .panel-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  @media (min-width: 780px) {
+    .container { max-width: 1000px; }
+    .panel-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+  }
+
+  /* Card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    backdrop-filter: blur(20px);
+    box-shadow: var(--shadow);
+  }
+  .card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 11px;
+  }
+
+  /* Now Playing + VU Meter */
+  .now-playing { display: flex; align-items: center; gap: 12px; }
+  .album-art {
+    width: 48px; height: 48px; border-radius: 11px;
+    background: linear-gradient(135deg, rgba(56,189,248,0.22), rgba(129,140,248,0.22));
+    border: 1px solid var(--border);
+    display: grid; place-items: center; flex-shrink: 0; overflow: hidden; color: var(--accent);
+  }
+  .album-art img { width: 100%; height: 100%; object-fit: cover; }
+  .track-info { flex: 1; min-width: 0; }
+  .track-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-sub { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .media-controls { display: flex; align-items: center; gap: 4px; }
+  .media-btn {
+    width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent;
+    color: var(--text); display: grid; place-items: center; cursor: pointer; transition: background 0.15s;
+  }
+  .media-btn:hover { background: rgba(255,255,255,0.09); }
+  .vu-wrap { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+  .vu-track { flex: 1; height: 5px; border-radius: 99px; background: rgba(148, 163, 184, 0.18); overflow: hidden; }
+  .vu-fill { height: 100%; width: 0%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--success)); transition: width 0.09s linear; }
+  .vu-label { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; }
+
+  /* Master Volume Bar */
+  .master-row { display: flex; align-items: center; gap: 11px; }
+  .master-row label { font-size: 13px; font-weight: 500; min-width: 66px; }
+  .vol-pct { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
+  /* Range Sliders */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 6px; border-radius: 99px;
+    background: rgba(148, 163, 184, 0.24); outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    border: 2px solid var(--accent); box-shadow: 0 2px 6px rgba(0,0,0,0.35); transition: transform 0.12s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.14); }
+
+  /* Speakers List */
+  .speaker-list { display: flex; flex-direction: column; gap: 10px; }
+  .speaker {
+    border: 1px solid var(--border); border-radius: 13px; padding: 12px 13px;
+    background: rgba(255, 255, 255, 0.02); transition: all 0.18s ease;
+  }
+  .speaker.active { background: var(--surface-active); border-color: var(--border-active); }
+  .speaker.error { border-color: rgba(248, 113, 113, 0.45); }
+  .speaker-top { display: flex; align-items: center; gap: 11px; cursor: pointer; user-select: none; }
+  .device-badge {
+    width: 40px; height: 40px; border-radius: 11px; background: rgba(148, 163, 184, 0.12);
+    display: grid; place-items: center; color: var(--text-muted); flex-shrink: 0; transition: all 0.18s;
+  }
+  .speaker.active .device-badge {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff;
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.3);
+  }
+  .speaker-meta { flex: 1; min-width: 0; }
+  .speaker-name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .speaker-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .pill { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 99px; background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+  .pill.ap2 { background: rgba(56, 189, 248, 0.16); color: var(--accent); }
+  .pill.raop { background: rgba(129, 140, 248, 0.16); color: var(--accent-2); }
+  .pill.streaming { background: rgba(52, 211, 153, 0.18); color: var(--success); }
+  .pill.connecting { background: rgba(251, 191, 36, 0.18); color: var(--warning); }
+  .pill.paired { background: rgba(52, 211, 153, 0.14); color: var(--success); }
+
+  .mini-btn {
+    padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04); color: var(--text); font-size: 11px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .mini-btn:hover { border-color: var(--border-active); color: var(--accent); }
+
+  .speaker-right { display: flex; align-items: center; gap: 7px; }
+  .star-btn { border: none; background: transparent; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 6px; opacity: 0.65; }
+  .star-btn:hover { opacity: 1; }
+  .star-btn.fav { color: var(--warning); opacity: 1; }
+
+  .check-circle {
+    width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(148, 163, 184, 0.35);
+    display: grid; place-items: center; transition: all 0.16s; flex-shrink: 0;
+  }
+  .speaker.active .check-circle { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .speaker-controls { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  .vol-row, .sync-row { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--text-muted); }
+  .error-banner {
+    margin-top: 8px; font-size: 11.5px; color: var(--danger);
+    background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: 8px; padding: 8px 10px; line-height: 1.4; display: flex; flex-direction: column; gap: 7px;
+  }
+
+  /* Quick Action Row */
+  .actions-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    flex: 1; min-width: 110px; padding: 9px 12px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: rgba(255, 255, 255, 0.04); color: var(--text);
+    font-size: 12.5px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: all 0.15s;
+  }
+  .btn:hover { background: var(--surface-hover); border-color: var(--border-active); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #fff; }
+  .btn.danger { color: var(--danger); border-color: rgba(248, 113, 113, 0.3); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Routing & Apps */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .toggle-label { font-size: 13px; font-weight: 500; }
+  .toggle-desc { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  .switch { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch-slider { position: absolute; inset: 0; background: rgba(148, 163, 184, 0.3); border-radius: 99px; transition: 0.2s; cursor: pointer; }
+  .switch-slider::before { content: ""; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+  .switch input:checked + .switch-slider { background: var(--accent); }
+  .switch input:checked + .switch-slider::before { transform: translateX(18px); }
+
+  .app-list { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 7px; }
+  .app-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+  .app-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .app-pill-btn { padding: 4px 10px; border-radius: 99px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+  .app-pill-btn.routed { background: rgba(56, 189, 248, 0.18); border-color: var(--border-active); color: var(--accent); }
+
+  /* Video Cast Panel */
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+  .field input, .field select, select {
+    padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border);
+    background-color: #151a25; color: var(--text); font-size: 13px; outline: none; width: 100%;
+    color-scheme: dark;
+  }
+  [data-theme="light"] .field input, [data-theme="light"] .field select, [data-theme="light"] select {
+    background-color: #ffffff; color: #0f172a; color-scheme: light;
+  }
+  select {
+    -webkit-appearance: none; appearance: none;
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2393a1b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    cursor: pointer;
+  }
+  select option { background-color: #151a25; color: #f3f6fc; }
+  [data-theme="light"] select option { background-color: #ffffff; color: #0f172a; }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .input-row { display: flex; gap: 8px; }
+  .drop-zone {
+    border: 1.5px dashed var(--border); border-radius: 12px; padding: 18px 14px;
+    text-align: center; cursor: pointer; transition: all 0.16s; color: var(--text-muted); font-size: 12.5px;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent); background: rgba(56, 189, 248, 0.08); color: var(--text);
+  }
+  .video-now-bar {
+    display: flex; flex-direction: column; gap: 10px;
+    background: var(--surface-active); border: 1px solid var(--border-active);
+    border-radius: 13px; padding: 13px;
+  }
+  .time-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .hint-box {
+    font-size: 11.5px; color: var(--text-muted); background: rgba(148,163,184,0.1);
+    border-radius: 9px; padding: 8px 10px; line-height: 1.4;
+  }
+  .hint-box code { color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  /* Empty state & Modal */
+  .empty { text-align: center; padding: 24px 12px; color: var(--text-muted); font-size: 13px; }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(6px);
+    display: none; place-items: center; z-index: 50; padding: 16px;
+  }
+  .modal-backdrop.open { display: grid; }
+  .modal {
+    width: 100%; max-width: 380px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .pin-input {
+    font-size: 28px !important; letter-spacing: 0.45em; text-align: center; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .footer { text-align: center; font-size: 11px; color: var(--text-muted); opacity: 0.8; padding-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header class="header">
+    <div class="brand">
+      <div class="brand-icon">
+        <img src="/assets/icon.png" alt="" width="42" height="42">
+      </div>
+      <div>
+        <h1>NixPlay</h1>
+        <div class="brand-sub">
+          <span class="dot" id="liveDot"></span>
+          <span id="statusText">Scanning network...</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" title="Rescan AirPlay receivers" onclick="rescan()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+      </button>
+      <button class="icon-btn" title="Add receiver manually by IP" onclick="openManualModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button class="icon-btn" title="Toggle light/dark theme" onclick="toggleTheme()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Mode Switcher: Audio vs Video Cast -->
+  <nav class="tabs">
+    <button class="tab-btn active" id="tabBtnAudio" onclick="switchTab('audio')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+      Audio &amp; Multi-Room
+    </button>
+    <button class="tab-btn" id="tabBtnVideo" onclick="switchTab('video')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><polygon points="10 8.5 15.5 11 10 13.5 10 8.5" fill="currentColor" stroke="none"/><line x1="8" y1="21" x2="16" y2="21"/></svg>
+      Video &amp; Screen Cast
+    </button>
+  </nav>
+
+  <!-- ==================== AUDIO TAB ==================== -->
+  <div class="tab-panel active" id="panelAudio">
+   <div class="panel-grid">
+    <div class="panel-col">
+    <section class="card">
+      <div class="now-playing">
+        <div class="album-art" id="albumArt">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="track-info">
+          <div class="track-title" id="trackTitle">System Audio</div>
+          <div class="track-sub" id="trackSub">Select one or more AirPlay speakers below</div>
+        </div>
+        <div class="media-controls">
+          <button class="media-btn" title="Previous" onclick="mediaAction('previous')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+          </button>
+          <button class="media-btn" title="Play / Pause" onclick="mediaAction('play-pause')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" id="playPauseIcon"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button class="media-btn" title="Next" onclick="mediaAction('next')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="vu-wrap">
+        <div class="vu-track"><div class="vu-fill" id="vuFill"></div></div>
+        <div class="vu-label" id="vuLabel">Idle</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>AirPlay Speakers &amp; Multi-Room</span>
+        <span id="speakerCount">0 found</span>
+      </div>
+      <div class="speaker-list" id="speakerList">
+        <div class="empty">Looking for HomePods, Apple TVs, Macs &amp; AirPlay speakers...</div>
+      </div>
+    </section>
+    </div>
+    <div class="panel-col">
+
+    <section class="card" style="display:flex;flex-direction:column;gap:12px;">
+      <div class="master-row">
+        <label for="masterSlider">Master</label>
+        <input type="range" id="masterSlider" min="0" max="100" value="100"
+               oninput="document.getElementById('masterPct').textContent=this.value+'%'"
+               onchange="setMasterVolume(this.value)">
+        <span class="vol-pct" id="masterPct">100%</span>
+      </div>
+      <div class="actions-bar">
+        <button class="btn" id="chimeBtn" onclick="playChime()" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Test Chime
+        </button>
+        <button class="btn danger" id="disconnectAllBtn" onclick="disconnectAll()" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Disconnect All
+        </button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>Linux Audio Routing</span>
+        <span id="backendName">PipeWire / PulseAudio</span>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Auto-route system audio</div>
+          <div class="toggle-desc">Switch default output on connect &amp; restore on disconnect</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="autoRouteToggle" checked onchange="setAutoRoute(this.checked)">
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+      <div class="app-list" id="appList" style="display:none;"></div>
+    </section>
+    </div>
+   </div>
+  </div>
+
+  <!-- ==================== VIDEO CAST TAB ==================== -->
+  <div class="tab-panel" id="panelVideo">
+   <div class="panel-grid">
+    <div class="panel-col">
+    <!-- Live Playback Controls (visible when casting) -->
+    <section class="video-now-bar" id="videoNowBar" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="vNowTitle">Casting...</div>
+          <div style="font-size:11.5px;color:var(--text-muted);" id="vNowSub">Apple TV</div>
+        </div>
+        <span class="pill streaming" id="vStateBadge">Playing</span>
+      </div>
+      <div id="vSeekWrap" style="display:flex;flex-direction:column;gap:4px;">
+        <input type="range" id="vSeekSlider" min="0" max="100" value="0"
+               onpointerdown="draggingVideoSeek=true"
+               onpointerup="draggingVideoSeek=false"
+               onchange="seekVideo(this.value)">
+        <div class="time-row">
+          <span id="vTimePos">0:00</span>
+          <span id="vTimeDur">0:00</span>
+        </div>
+      </div>
+      <div class="actions-bar">
+        <button class="btn" id="vPlayPauseBtn" onclick="toggleVideoPause()">Pause</button>
+        <button class="btn danger" onclick="stopVideo()">Stop Casting</button>
+      </div>
+    </section>
+
+    <div class="error-banner" id="videoErrorBox" style="display:none;"></div>
+
+    <!-- Receiver Picker -->
+    <section class="card" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="card-title" style="margin-bottom:0;">
+        <span>Target Display (Apple TV / AirPlay 2)</span>
+        <span id="videoTargetStatus"></span>
+      </div>
+      <div class="input-row">
+        <select id="videoTargetSelect" style="flex:1;" onchange="updateVideoTargetBadge()"></select>
+        <button class="btn" style="flex:0 0 auto;min-width:86px;" id="videoPairBtn" onclick="pairSelectedVideoTarget()">Pair PIN</button>
+      </div>
+    </section>
+
+    <!-- Cast Local File or Drag-and-Drop -->
+    <section class="card" style="display:flex;flex-direction:column;gap:11px;">
+      <div class="card-title" style="margin-bottom:0;">
+        <span>Cast Local Video File</span>
+        <span class="pill">MP4 · MOV · M4V</span>
+      </div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('filePicker').click()">
+        <strong>Drop a video file here</strong> or click to browse<br>
+        <span style="font-size:11px;opacity:0.8">Served directly over LAN HTTP with full seek/scrub support</span>
+        <input type="file" id="filePicker" accept="video/*,.mp4,.mov,.m4v" style="display:none" onchange="handleFilePicked(this.files[0])">
+      </div>
+      <div class="input-row">
+        <input type="text" id="localFilePath" placeholder="Or enter local path (e.g. ~/Videos/movie.mp4)" style="flex:1;padding:9px 11px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);font-size:13px;">
+        <button class="btn primary" style="flex:0 0 auto;min-width:74px;" onclick="castLocalPath()">Cast</button>
+      </div>
+    </section>
+
+    </div>
+    <div class="panel-col">
+    <!-- Cast Video URL / YouTube / Vimeo / HLS -->
+    <section class="card" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="card-title" style="margin-bottom:0;">
+        <span>Cast URL (YouTube · Vimeo · HLS · MP4)</span>
+        <span class="pill ap2" id="ytdlpBadge">MP4 · M3U8</span>
+      </div>
+      <div class="input-row">
+        <input type="url" id="videoUrlInput" placeholder="https://youtube.com/watch?v=... or vimeo.com or .m3u8" style="flex:1;padding:9px 11px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,0.04);color:var(--text);font-size:13px;">
+        <button class="btn primary" style="flex:0 0 auto;min-width:74px;" onclick="castUrl()">Cast</button>
+      </div>
+    </section>
+
+    <!-- Mirror Linux Screen (real-time AirPlay mirroring, HLS fallback) -->
+    <section class="card" style="display:flex;flex-direction:column;gap:11px;">
+      <div class="card-title" style="margin-bottom:0;">
+        <span>Mirror Linux Screen</span>
+        <span class="pill" id="ffmpegBadge">Checking ffmpeg...</span>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Audio</div>
+          <div class="toggle-desc">Real-time AirPlay mirroring on Apple TV; other TVs fall back to HLS (~1.5s delay)</div>
+        </div>
+        <select id="screenAudioSelect" style="width:auto;">
+          <option value="desktop" selected>Desktop audio</option>
+          <option value="desktop_and_mic">Desktop + microphone</option>
+          <option value="none">No audio</option>
+        </select>
+      </div>
+      <div class="hint-box" id="ffmpegHint" style="display:none;">
+        Live screen casting requires <code>ffmpeg</code>. Install it once with:<br>
+        <code>sudo apt install ffmpeg</code>
+      </div>
+      <button class="btn primary" id="castScreenBtn" onclick="castScreen()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        Mirror Desktop Screen
+      </button>
+    </section>
+    </div>
+   </div>
+  </div>
+
+  <div class="footer" id="footerMeta">NixPlay — Lossless ALAC AirPlay 2 Audio &amp; Video for Linux</div>
+</div>
+
+<!-- Manual Speaker Modal -->
+<div class="modal-backdrop" id="manualModal" onclick="if(event.target===this) closeManualModal()">
+  <div class="modal">
+    <h3 style="font-size:15px;font-weight:700;">Add AirPlay Receiver by IP</h3>
+    <div class="field">
+      <label>Display Name</label>
+      <input type="text" id="mName" placeholder="e.g. Office HomePod">
+    </div>
+    <div class="field">
+      <label>IPv4 Address</label>
+      <input type="text" id="mIp" placeholder="e.g. 192.168.1.50">
+    </div>
+    <div class="field">
+      <label>Protocol</label>
+      <select id="mProto">
+        <option value="airplay2">AirPlay 2 (Port 7000 — HomePod, Apple TV, Mac)</option>
+        <option value="raop">AirPlay 1 / RAOP (Port 5000 — Legacy)</option>
+      </select>
+    </div>
+    <div class="actions-bar" style="margin-top:4px;">
+      <button class="btn" onclick="closeManualModal()">Cancel</button>
+      <button class="btn primary" onclick="submitManual()">Add Receiver</button>
+    </div>
+  </div>
+</div>
+
+<!-- Apple TV 4-Digit PIN Pairing Modal -->
+<div class="modal-backdrop" id="pinModal" onclick="if(event.target===this) closePinModal()">
+  <div class="modal">
+    <h3 style="font-size:15px;font-weight:700;" id="pinModalTitle">Pair with Apple TV</h3>
+    <p style="font-size:12.5px;color:var(--text-muted);line-height:1.45;" id="pinModalDesc">
+      A 4-digit AirPlay code should appear on your TV screen. Enter it below to pair permanently.
+    </p>
+    <div class="field">
+      <input type="text" id="pinInput" class="pin-input" maxlength="4" inputmode="numeric" placeholder="0000"
+             onkeydown="if(event.key==='Enter') submitPin()">
+    </div>
+    <div class="error-banner" id="pinError" style="display:none;margin-top:0;"></div>
+    <div class="actions-bar">
+      <button class="btn" onclick="closePinModal()">Cancel</button>
+      <button class="btn primary" id="pinSubmitBtn" onclick="submitPin()">Verify &amp; Pair</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentState = null;
+let expandedSync = new Set();
+let draggingSlider = false;
+let draggingVideoSeek = false;
+let activeTab = 'audio';
+let pairingDeviceId = null;
+
+const savedTheme = localStorage.getItem('nixplay-theme');
+if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('nixplay-theme', next);
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('tabBtnAudio').classList.toggle('active', tab === 'audio');
+  document.getElementById('tabBtnVideo').classList.toggle('active', tab === 'video');
+  document.getElementById('panelAudio').classList.toggle('active', tab === 'audio');
+  document.getElementById('panelVideo').classList.toggle('active', tab === 'video');
+}
+
+function deviceIconSvg(kind) {
+  switch (kind) {
+    case 'home_pod_mini':
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="13" r="7.5"/><ellipse cx="12" cy="7.5" rx="4" ry="1.4"/></svg>`;
+    case 'home_pod':
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="6" y="4" width="12" height="16" rx="5"/><ellipse cx="12" cy="6.5" rx="4" ry="1.3"/></svg>`;
+    case 'apple_tv':
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="2.5" y="4.5" width="19" height="13" rx="2.5"/><line x1="8" y1="20.5" x2="16" y2="20.5"/></svg>`;
+    case 'mac':
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 19h20"/></svg>`;
+    default:
+      return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="5" y="2.5" width="14" height="19" rx="3"/><circle cx="12" cy="14" r="3.5"/><circle cx="12" cy="7" r="1.2" fill="currentColor"/></svg>`;
+  }
+}
+
+function kindLabel(kind) {
+  return ({
+    home_pod_mini: 'HomePod mini',
+    home_pod: 'HomePod',
+    apple_tv: 'Apple TV',
+    mac: 'Mac',
+    shairport_sync: 'Shairport Sync',
+    sonos: 'Sonos',
+    speaker: 'AirPlay Speaker'
+  })[kind] || 'AirPlay';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function fmtTime(sec) {
+  if (!sec || !isFinite(sec) || sec < 0) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function render(state) {
+  currentState = state;
+  const activeCount = state.speakers.filter(s => s.state === 'streaming' || s.state === 'connecting').length;
+  const videoActive = state.video && (state.video.state === 'playing' || state.video.state === 'paused' || state.video.state === 'connecting');
+
+  // Header status
+  const dot = document.getElementById('liveDot');
+  const statusText = document.getElementById('statusText');
+  if (videoActive) {
+    dot.classList.add('live');
+    statusText.textContent = `Casting video to ${state.video.device_name || 'TV'}`;
+  } else if (activeCount > 0) {
+    dot.classList.add('live');
+    statusText.textContent = activeCount === 1 ? 'Streaming audio to 1 speaker' : `Multi-room (${activeCount} speakers)`;
+  } else {
+    dot.classList.remove('live');
+    statusText.textContent = `${state.speakers.length} AirPlay receiver${state.speakers.length === 1 ? '' : 's'} ready`;
+  }
+
+  // Now Playing
+  const meta = state.metadata || {};
+  document.getElementById('trackTitle').textContent = meta.title || (activeCount > 0 ? 'Streaming System Audio' : 'System Audio');
+  const subParts = [meta.artist, meta.album, meta.player].filter(Boolean);
+  document.getElementById('trackSub').textContent = subParts.length ? subParts.join(' · ') : 'Select one or more AirPlay speakers below';
+
+  const artEl = document.getElementById('albumArt');
+  artEl.innerHTML = meta.art_url
+    ? `<img src="${escapeHtml(meta.art_url)}" alt="">`
+    : `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+
+  document.getElementById('playPauseIcon').innerHTML = meta.status === 'Playing'
+    ? '<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>'
+    : '<path d="M8 5v14l11-7z"/>';
+
+  updateLevel(state.audio_level, activeCount > 0);
+
+  if (!draggingSlider) {
+    document.getElementById('masterSlider').value = state.master_volume;
+    document.getElementById('masterPct').textContent = state.master_volume + '%';
+  }
+  document.getElementById('chimeBtn').disabled = activeCount === 0;
+  document.getElementById('disconnectAllBtn').disabled = activeCount === 0;
+  document.getElementById('autoRouteToggle').checked = state.auto_route_audio;
+  document.getElementById('backendName').textContent = state.audio_backend?.server_name || 'Audio';
+  document.getElementById('speakerCount').textContent = `${state.speakers.length} found`;
+
+  // Active Apps
+  const appList = document.getElementById('appList');
+  const apps = state.audio_backend?.apps || [];
+  if (apps.length > 0) {
+    appList.style.display = 'flex';
+    appList.innerHTML = apps.map(a => `
+      <div class="app-row">
+        <span class="app-name" title="${escapeHtml(a.media_name)}">${escapeHtml(a.app_name)}${a.media_name ? ' — ' + escapeHtml(a.media_name) : ''}</span>
+        <button class="app-pill-btn ${a.routed_to_nixplay ? 'routed' : ''}" onclick="routeApp(${a.id}, ${!a.routed_to_nixplay})">
+          ${a.routed_to_nixplay ? '→ AirPlay' : 'Local'}
+        </button>
+      </div>
+    `).join('');
+  } else {
+    appList.style.display = 'none';
+  }
+
+  // Video panel sync
+  renderVideoSection(state);
+
+  // Speakers list
+  if (draggingSlider) return;
+  const list = document.getElementById('speakerList');
+  if (!state.speakers.length) {
+    list.innerHTML = `<div class="empty">No AirPlay speakers found yet. Make sure you're on the same Wi-Fi/LAN or click <strong>+</strong> to add by IP.</div>`;
+    return;
+  }
+
+  list.innerHTML = state.speakers.map(s => {
+    const d = s.device;
+    const isActive = s.state === 'streaming' || s.state === 'connecting';
+    const isErr = s.state === 'error' && s.last_error;
+    const needsPin = isErr && s.last_error.includes('PAIRING_REQUIRED');
+    const protoBadge = d.protocol === 'airplay2' || d.protocol === 'air_play2'
+      ? '<span class="pill ap2">AirPlay 2</span>'
+      : '<span class="pill raop">AirPlay 1</span>';
+    const stateBadge = s.state === 'streaming'
+      ? '<span class="pill streaming">Streaming</span>'
+      : s.state === 'connecting'
+      ? '<span class="pill connecting">Connecting…</span>'
+      : '';
+    const pairedBadge = s.paired ? '<span class="pill paired">Paired</span>' : '';
+    const showSync = expandedSync.has(d.id);
+
+    return `
+      <div class="speaker ${isActive ? 'active' : ''} ${isErr ? 'error' : ''}">
+        <div class="speaker-top" onclick="toggleSpeaker('${escapeHtml(d.id)}', ${isActive})">
+          <div class="device-badge">${deviceIconSvg(d.kind)}</div>
+          <div class="speaker-meta">
+            <div class="speaker-name">${escapeHtml(d.name)}</div>
+            <div class="speaker-sub">
+              <span>${kindLabel(d.kind)}</span>
+              ${protoBadge}
+              ${pairedBadge}
+              ${stateBadge}
+              <span style="opacity:0.7">${escapeHtml(d.ip)}</span>
+            </div>
+          </div>
+          <div class="speaker-right" onclick="event.stopPropagation()">
+            ${(d.kind === 'apple_tv' || d.kind === 'mac') && !s.paired ? `<button class="mini-btn" onclick="startPinPairing('${escapeHtml(d.id)}', '${escapeHtml(d.name)}')">Pair</button>` : ''}
+            <button class="star-btn ${s.favorite ? 'fav' : ''}" title="Pin favorite" onclick="toggleFavorite('${escapeHtml(d.id)}')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="${s.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
+            <div class="check-circle" onclick="toggleSpeaker('${escapeHtml(d.id)}', ${isActive})">
+              ${isActive ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+            </div>
+          </div>
+        </div>
+        ${isActive ? `
+          <div class="speaker-controls">
+            <div class="vol-row">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted)"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              <input type="range" min="0" max="100" value="${s.volume}"
+                     onpointerdown="draggingSlider=true"
+                     onpointerup="draggingSlider=false"
+                     oninput="this.nextElementSibling.textContent=this.value+'%'"
+                     onchange="setSpeakerVolume('${escapeHtml(d.id)}', this.value)">
+              <span class="vol-pct">${s.volume}%</span>
+              <button class="star-btn" title="Adjust sync offset (ms)" onclick="toggleSync('${escapeHtml(d.id)}')" style="font-size:11px;">⏱</button>
+            </div>
+            ${showSync ? `
+              <div class="sync-row">
+                <span>Sync offset</span>
+                <input type="range" min="-500" max="500" step="10" value="${s.latency_offset_ms}"
+                       onpointerdown="draggingSlider=true"
+                       onpointerup="draggingSlider=false"
+                       oninput="this.nextElementSibling.textContent=(this.value>=0?'+':'')+this.value+'ms'"
+                       onchange="setLatency('${escapeHtml(d.id)}', this.value)">
+                <span class="vol-pct" style="min-width:46px;">${s.latency_offset_ms >= 0 ? '+' : ''}${s.latency_offset_ms}ms</span>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+        ${isErr ? `
+          <div class="error-banner">
+            <span>${escapeHtml(s.last_error.replace('PAIRING_REQUIRED: ', ''))}</span>
+            ${needsPin ? `<button class="btn primary" style="padding:6px 10px;font-size:12px;" onclick="startPinPairing('${escapeHtml(d.id)}', '${escapeHtml(d.name)}')">Show 4-Digit PIN on ${escapeHtml(d.name)}</button>` : ''}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderVideoSection(state) {
+  const v = state.video || {};
+  const select = document.getElementById('videoTargetSelect');
+  const prevVal = select.value;
+  const videoTargets = state.speakers.filter(s => s.supports_video);
+  const candidates = videoTargets.length ? videoTargets : state.speakers;
+
+  const newOpts = candidates.map(s =>
+    `<option value="${escapeHtml(s.device.id)}">${escapeHtml(s.device.name)} (${kindLabel(s.device.kind)})${s.paired ? ' ✓ Paired' : ''}</option>`
+  ).join('');
+  if (select.dataset.lastHtml !== newOpts) {
+    select.innerHTML = newOpts || '<option value="">No AirPlay video receivers found</option>';
+    select.dataset.lastHtml = newOpts;
+    if (prevVal && candidates.some(s => s.device.id === prevVal)) {
+      select.value = prevVal;
+    }
+  }
+  updateVideoTargetBadge();
+
+  // yt-dlp status
+  const ytBadge = document.getElementById('ytdlpBadge');
+  if (ytBadge) {
+    ytBadge.textContent = v.ytdlp_available ? 'yt-dlp ready' : 'MP4 · M3U8';
+    ytBadge.className = 'pill ' + (v.ytdlp_available ? 'streaming' : 'ap2');
+  }
+
+  // ffmpeg status
+  const ffBadge = document.getElementById('ffmpegBadge');
+  const ffHint = document.getElementById('ffmpegHint');
+  const castScreenBtn = document.getElementById('castScreenBtn');
+  if (v.ffmpeg_available) {
+    ffBadge.textContent = 'ffmpeg ready';
+    ffBadge.className = 'pill streaming';
+    ffHint.style.display = 'none';
+    castScreenBtn.disabled = !candidates.length;
+  } else {
+    ffBadge.textContent = 'ffmpeg missing';
+    ffBadge.className = 'pill connecting';
+    ffHint.style.display = 'block';
+    castScreenBtn.disabled = true;
+  }
+
+  // Now playing video bar
+  const nowBar = document.getElementById('videoNowBar');
+  const errBox = document.getElementById('videoErrorBox');
+  if (v.state === 'playing' || v.state === 'paused' || v.state === 'connecting') {
+    nowBar.style.display = 'flex';
+    document.getElementById('vNowTitle').textContent = v.title || 'AirPlay Video';
+    const screenLabel = (v.title || '').includes('Mirroring') ? 'Screen Mirroring' : 'Live Screen (HLS)';
+    document.getElementById('vNowSub').textContent = `${v.device_name || 'Apple TV'} · ${v.source_kind === 'screen' ? screenLabel : v.source_kind === 'file' ? 'Local File' : 'URL Stream'}`;
+    const badge = document.getElementById('vStateBadge');
+    badge.textContent = v.state === 'connecting' ? 'Connecting…' : v.state === 'paused' ? 'Paused' : 'Playing';
+    badge.className = 'pill ' + (v.state === 'playing' ? 'streaming' : 'connecting');
+    document.getElementById('vPlayPauseBtn').textContent = v.state === 'paused' ? 'Resume' : 'Pause';
+    // A live screen can't be paused, only stopped.
+    document.getElementById('vPlayPauseBtn').style.display = v.source_kind === 'screen' ? 'none' : '';
+
+    const seekWrap = document.getElementById('vSeekWrap');
+    if (v.duration > 1 && v.source_kind !== 'screen') {
+      seekWrap.style.display = 'flex';
+      if (!draggingVideoSeek) {
+        const slider = document.getElementById('vSeekSlider');
+        slider.max = Math.floor(v.duration);
+        slider.value = Math.floor(v.position || 0);
+      }
+      document.getElementById('vTimePos').textContent = fmtTime(v.position);
+      document.getElementById('vTimeDur').textContent = fmtTime(v.duration);
+    } else {
+      seekWrap.style.display = 'none';
+    }
+  } else {
+    nowBar.style.display = 'none';
+  }
+
+  if (v.state === 'error' && v.error) {
+    errBox.style.display = 'flex';
+    const needsPin = v.error.includes('PAIRING_REQUIRED');
+    const cleanMsg = v.error.replace('PAIRING_REQUIRED: ', '');
+    errBox.innerHTML = `<span>${escapeHtml(cleanMsg)}</span>` +
+      (needsPin && v.device_id
+        ? `<button class="btn primary" style="padding:6px 10px;font-size:12px;" onclick="startPinPairing('${escapeHtml(v.device_id)}', '${escapeHtml(v.device_name || 'TV')}')">Show 4-Digit PIN on ${escapeHtml(v.device_name || 'TV')}</button>`
+        : '');
+  } else {
+    errBox.style.display = 'none';
+  }
+}
+
+function updateVideoTargetBadge() {
+  if (!currentState) return;
+  const id = document.getElementById('videoTargetSelect').value;
+  const s = currentState.speakers.find(x => x.device.id === id);
+  const badge = document.getElementById('videoTargetStatus');
+  const btn = document.getElementById('videoPairBtn');
+  if (!s) {
+    badge.textContent = '';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  badge.innerHTML = s.paired ? '<span class="pill paired">Paired</span>' : '<span class="pill">PIN may be needed</span>';
+  btn.textContent = s.paired ? 'Re-pair' : 'Pair PIN';
+}
+
+function updateLevel(level, streaming) {
+  const pct = streaming ? Math.min(100, Math.round((level || 0) * 100)) : 0;
+  document.getElementById('vuFill').style.width = pct + '%';
+  document.getElementById('vuLabel').textContent = streaming ? (pct > 1 ? 'ALAC Live' : 'Silent') : 'Idle';
+}
+
+async function api(path, body) {
+  const opts = body !== undefined
+    ? { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }
+    : { method: 'POST' };
+  return fetch(path, opts);
+}
+
+// Audio actions
+function toggleSpeaker(id, isActive) { api(`/api/speakers/${encodeURIComponent(id)}/${isActive ? 'disconnect' : 'connect'}`); }
+function setSpeakerVolume(id, val) { api(`/api/speakers/${encodeURIComponent(id)}/volume`, { volume: Number(val) }); }
+function setLatency(id, val) { api(`/api/speakers/${encodeURIComponent(id)}/latency`, { offset_ms: Number(val) }); }
+function toggleFavorite(id) { api(`/api/speakers/${encodeURIComponent(id)}/favorite`); }
+function toggleSync(id) { if (expandedSync.has(id)) expandedSync.delete(id); else expandedSync.add(id); if (currentState) render(currentState); }
+function setMasterVolume(val) { api('/api/master-volume', { volume: Number(val) }); }
+function setAutoRoute(enabled) { api('/api/auto-route', { enabled }); }
+function playChime() { api('/api/test-chime'); }
+function disconnectAll() { api('/api/speakers/disconnect-all'); }
+function rescan() { api('/api/scan'); }
+function routeApp(id, toNixplay) { api(`/api/apps/${id}/route`, { to_nixplay: toNixplay }); }
+function mediaAction(action) { api(`/api/media/${action}`); }
+
+// PIN Pairing modal
+async function startPinPairing(id, name) {
+  pairingDeviceId = id;
+  document.getElementById('pinModalTitle').textContent = `Pair with ${name}`;
+  document.getElementById('pinModalDesc').textContent = `Requesting 4-digit PIN on ${name}...`;
+  document.getElementById('pinInput').value = '';
+  document.getElementById('pinError').style.display = 'none';
+  document.getElementById('pinModal').classList.add('open');
+
+  const res = await api(`/api/speakers/${encodeURIComponent(id)}/pair/start`);
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.ok) {
+    document.getElementById('pinModalDesc').textContent = `Enter the 4-digit AirPlay code displayed on ${name}. Credentials will be saved permanently.`;
+    document.getElementById('pinInput').focus();
+  } else {
+    document.getElementById('pinError').textContent = data.error || 'Could not start PIN pairing.';
+    document.getElementById('pinError').style.display = 'block';
+  }
+}
+
+function pairSelectedVideoTarget() {
+  const id = document.getElementById('videoTargetSelect').value;
+  const s = currentState?.speakers.find(x => x.device.id === id);
+  if (s) startPinPairing(s.device.id, s.device.name);
+}
+
+function closePinModal() {
+  document.getElementById('pinModal').classList.remove('open');
+  pairingDeviceId = null;
+}
+
+async function submitPin() {
+  if (!pairingDeviceId) return;
+  const pin = document.getElementById('pinInput').value.trim();
+  if (pin.length < 4) return;
+  const btn = document.getElementById('pinSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Pairing…';
+  document.getElementById('pinError').style.display = 'none';
+
+  const res = await api(`/api/speakers/${encodeURIComponent(pairingDeviceId)}/pair/finish`, { pin });
+  const data = await res.json().catch(() => ({}));
+  btn.disabled = false;
+  btn.textContent = 'Verify & Pair';
+
+  if (res.ok && data.ok) {
+    closePinModal();
+  } else {
+    document.getElementById('pinError').textContent = data.error || 'Pairing failed — double-check the PIN.';
+    document.getElementById('pinError').style.display = 'block';
+  }
+}
+
+// Video casting actions
+function getSelectedVideoTarget() {
+  return document.getElementById('videoTargetSelect').value;
+}
+
+async function castUrl() {
+  const device_id = getSelectedVideoTarget();
+  const url = document.getElementById('videoUrlInput').value.trim();
+  if (!device_id || !url) return;
+  await api('/api/video/cast-url', { device_id, url });
+}
+
+async function castLocalPath() {
+  const device_id = getSelectedVideoTarget();
+  const path = document.getElementById('localFilePath').value.trim();
+  if (!device_id || !path) return;
+  const res = await api('/api/video/cast-file', { device_id, path });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    alert(d.error || 'Could not cast file');
+  }
+}
+
+async function handleFilePicked(file) {
+  const device_id = getSelectedVideoTarget();
+  if (!file || !device_id) return;
+  const dropZone = document.getElementById('dropZone');
+  const prev = dropZone.innerHTML;
+  dropZone.innerHTML = `<strong>Preparing "${escapeHtml(file.name)}"…</strong>`;
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const res = await fetch(`/api/video/upload-and-cast/${encodeURIComponent(device_id)}`, { method: 'POST', body: form });
+  dropZone.innerHTML = prev;
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    alert(d.error || 'Failed to cast file');
+  }
+}
+
+async function castScreen() {
+  const device_id = getSelectedVideoTarget();
+  if (!device_id) return;
+  const audio = document.getElementById('screenAudioSelect').value;
+  const btn = document.getElementById('castScreenBtn');
+  btn.disabled = true;
+  const res = await api('/api/video/cast-screen', { device_id, audio, fps: 30 });
+  btn.disabled = false;
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    alert(d.error || 'Could not start screen cast');
+  }
+}
+
+function toggleVideoPause() {
+  const isPaused = currentState?.video?.state === 'paused';
+  api('/api/video/rate', { rate: isPaused ? 1.0 : 0.0 });
+}
+function seekVideo(pos) { api('/api/video/seek', { position: Number(pos) }); }
+function stopVideo() { api('/api/video/stop'); }
+
+// Drag and drop on dropZone
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('dragover');
+  if (e.dataTransfer.files?.length) handleFilePicked(e.dataTransfer.files[0]);
+});
+
+// Manual add modal
+function openManualModal() { document.getElementById('manualModal').classList.add('open'); }
+function closeManualModal() { document.getElementById('manualModal').classList.remove('open'); }
+async function submitManual() {
+  const name = document.getElementById('mName').value.trim() || 'AirPlay Receiver';
+  const ip = document.getElementById('mIp').value.trim();
+  const protocol = document.getElementById('mProto').value;
+  const res = await api('/api/speakers/manual', { name, ip, protocol });
+  if (res.ok) {
+    closeManualModal();
+    document.getElementById('mName').value = '';
+    document.getElementById('mIp').value = '';
+  } else {
+    alert('Please enter a valid IPv4 address.');
+  }
+}
+
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.type === 'level') {
+      updateLevel(data.audio_level, true);
+    } else {
+      render(data);
+    }
+  };
+  ws.onclose = () => setTimeout(connectWs, 1500);
+}
+
+fetch('/api/state').then(r => r.json()).then(render).catch(() => {});
+connectWs();
+// Deep link to a tab, e.g. http://127.0.0.1:17420/#video
+if (location.hash === '#video') switchTab('video');
+</script>
+</body>
+</html>

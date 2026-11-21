@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=NixPlay AirPlay
+Comment=Stream Linux audio to HomePod, Apple TV & AirPlay speakers
+Exec=nixplay serve --open
+Icon=nixplay
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Network;
+Keywords=airplay;homepod;appletv;audio;speakers;multiroom;
+StartupNotify=false
+StartupWMClass=nixplay
